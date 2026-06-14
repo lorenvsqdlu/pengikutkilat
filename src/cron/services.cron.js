@@ -23,7 +23,7 @@ function initServicesCron() {
     } catch (error) {
       logger.error('[STARTUP] Gagal ambil initial services', error.message);
     }
-  }, 2000);
+  }, 0);
 }
 
 module.exports = initServicesCron;

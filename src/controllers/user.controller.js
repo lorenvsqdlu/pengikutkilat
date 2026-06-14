@@ -20,7 +20,7 @@ class UserController {
 *Terdaftar:* ${new Date(user.created_at).toLocaleString('id-ID')}
       `;
       
-      await ctx.replyWithMarkdown(profileText.trim());
+      await ctx.reply(profileText.trim(), { parse_mode: 'Markdown' });
     } catch (error) {
       logger.error('Error in UserController.handleProfile', error);
       await ctx.reply('Terjadi kesalahan saat memuat profil Anda.');
@@ -44,7 +44,7 @@ class UserController {
       
       const saldoText = `💰 *INFO SALDO*\nSaat ini saldo Anda adalah: *${balanceStr}*`;
       
-      await ctx.replyWithMarkdown(saldoText);
+      await ctx.reply(saldoText, { parse_mode: 'Markdown' });
     } catch (error) {
       logger.error('Error in UserController.handleSaldo', error);
       await ctx.reply('Terjadi kesalahan saat memuat saldo Anda.');

@@ -64,9 +64,6 @@ app.listen(config.PORT, async () => {
     // Launching the bot via long-polling with retry mechanism for zero-downtime deploys
     const launchBot = async (retries = 5) => {
       try {
-        await bot.launch({ dropPendingUpdates: true });
-        logger.info('Telegram Bot successfully launched via long-polling.');
-        
         // Base cron
         initServicesCron();
         
@@ -74,13 +71,19 @@ app.listen(config.PORT, async () => {
         startOrderWorker(bot);
         startStatusWorker(bot);
         startRefillWorker(bot);
+
+        bot.launch({ dropPendingUpdates: true }).then(() => {
+          logger.info('Telegram Bot successfully launched via long-polling.');
+        }).catch((err) => {
+          if (err.response && err.response.error_code === 409 && retries > 0) {
+            logger.warn(`Conflict 409 (another bot instance is running). Retrying in 5 seconds... (${retries} retries left)`);
+            setTimeout(() => launchBot(retries - 1), 5000);
+          } else {
+            logger.error('Failed to launch Telegram Bot.', err);
+          }
+        });
       } catch (err) {
-        if (err.response && err.response.error_code === 409 && retries > 0) {
-          logger.warn(`Conflict 409 (another bot instance is running). Retrying in 5 seconds... (${retries} retries left)`);
-          setTimeout(() => launchBot(retries - 1), 5000);
-        } else {
-          logger.error('Failed to launch Telegram Bot.', err);
-        }
+        logger.error('Error during bot launch sequence.', err);
       }
     };
     
