@@ -102,26 +102,45 @@ class SMMService {
       }
       
       if (servicesList.length > 0) {
-        // Group by category langsung
+        // Group by platform -> category
         const grouped = {};
+        const platforms = new Set();
+        
         servicesList.forEach(s => {
           const cat = s.category || 'Lainnya';
-          if (!grouped[cat]) grouped[cat] = [];
-          grouped[cat].push({
+          
+          // Memisahkan platform dari kategori, misal "Instagram Followers" -> "Instagram"
+          let platform = 'Lainnya';
+          if (cat.toLowerCase().includes('instagram')) platform = 'Instagram';
+          else if (cat.toLowerCase().includes('tiktok')) platform = 'TikTok';
+          else if (cat.toLowerCase().includes('youtube')) platform = 'YouTube';
+          else if (cat.toLowerCase().includes('facebook')) platform = 'Facebook';
+          else if (cat.toLowerCase().includes('telegram')) platform = 'Telegram';
+          else if (cat.toLowerCase().includes('twitter') || cat.toLowerCase().includes('x.com')) platform = 'Twitter';
+          else if (cat.toLowerCase().includes('shopee')) platform = 'Shopee';
+          else if (cat.toLowerCase().includes('tokopedia')) platform = 'Tokopedia';
+          else if (cat.toLowerCase().includes('spotify')) platform = 'Spotify';
+          else if (cat.toLowerCase().includes('website')) platform = 'Website Traffic';
+          else if (cat.toLowerCase().includes('discord')) platform = 'Discord';
+          
+          if (!grouped[platform]) grouped[platform] = [];
+          grouped[platform].push({
             id: s.id || s.service,
-            service: s.service || s.id, // Untuk kompatibilitas
+            service: s.service || s.id,
             name: s.name,
+            category: cat,
             type: s.type,
             price: s.price || s.rate,
             min: s.min,
             max: s.max,
             description: s.description || ''
           });
+          platforms.add(platform);
         });
         
-        const groupedArr = Object.keys(grouped).map(cat => ({
-          category: cat,
-          services: grouped[cat]
+        const groupedArr = Object.keys(grouped).map(plat => ({
+          platform: plat,
+          services: grouped[plat]
         }));
         
         this.servicesCache = {

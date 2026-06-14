@@ -20,6 +20,9 @@ async function recoverPendingOrders() {
                    order_id: order.id,
                    user_id: order.user_id,
                    price: order.price,
+                   base_price: order.cost_price ? order.cost_price / order.quantity : 0,
+                   category: order.category,
+                   quantity: order.quantity,
                    smm_payload: {
                        service: order.service_id,
                        target: order.target,

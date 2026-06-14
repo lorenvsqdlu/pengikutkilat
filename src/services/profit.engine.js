@@ -9,9 +9,9 @@ class ProfitEngine {
   }
 
   static async getGlobalMargin() {
-    const query = `SELECT value FROM settings WHERE \`key\` = 'markup_percent'`;
+    const query = `SELECT setting_value FROM settings WHERE setting_key = 'markup_percent'`;
     const [rows] = await db.query(query);
-    return rows.length && rows[0].value ? parseFloat(rows[0].value) : 20; // Default 20%
+    return rows.length && rows[0].setting_value ? parseFloat(rows[0].setting_value) : 20; // Default 20%
   }
 
   static async calculatePrice(servicePricePer1000, quantity, categoryName) {

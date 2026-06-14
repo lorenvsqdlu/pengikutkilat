@@ -65,21 +65,45 @@ Apakah data di atas sudah benar?
 
 const orderScene = new Scenes.WizardScene(
   'ORDER_SCENE',
-  // Step 1: Menu Utama -> Pilih Kategori Platform (Instagram)
+  // Step 1: Menu Utama -> Pilih Kategori Platform (Instagram, TikTok, dll)
   async (ctx) => {
     ctx.wizard.state.order = {};
     
-    await ctx.reply('🛍️ *Menu Order*', {
+    if (!smmService.servicesCache) {
+      // Tunggu cache diisi oleh worker yang berjalan di background
+      await ctx.reply('⏳ Sedang memuat layanan SMM, silakan coba beberapa saat lagi.');
+      return ctx.scene.leave();
+    }
+
+    const groupedServices = smmService.getGroupedServices();
+    if (groupedServices.length === 0) {
+      await ctx.reply('❌ Tidak ada layanan yang tersedia saat ini.');
+      return ctx.scene.leave();
+    }
+
+    const buttons = [];
+    let row = [];
+    
+    groupedServices.forEach(g => {
+        if (g.services.length > 0) {
+            row.push(Markup.button.callback(g.platform, `PLATFORM_${g.platform}`));
+            if (row.length === 2) {
+                buttons.push(row);
+                row = [];
+            }
+        }
+    });
+    if (row.length > 0) buttons.push(row);
+    buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
+    
+    await ctx.reply('🛍️ *Pilih Platform*', {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('📸 Instagram', 'PLATFORM_INSTAGRAM')],
-        [Markup.button.callback('❌ Batal', 'CANCEL')]
-      ])
+      ...Markup.inlineKeyboard(buttons)
     });
     return ctx.wizard.next();
   },
   
-  // Step 2: Pilih Tipe Layanan (Followers)
+  // Step 2: Pilih Kategori Layanan (Followers, Likes, Views dll)
   async (ctx) => {
     if (ctx.message && ctx.message.text === '/cancel') return handleCancel(ctx);
     if (!ctx.callbackQuery) return;
@@ -87,16 +111,40 @@ const orderScene = new Scenes.WizardScene(
     const action = ctx.callbackQuery.data;
     if (action === 'CANCEL') return handleCancel(ctx);
     
-    if (action === 'PLATFORM_INSTAGRAM') {
+    if (action.startsWith('PLATFORM_')) {
       await ctx.answerCbQuery();
-      ctx.wizard.state.order.platform = 'Instagram';
+      const platformName = action.replace('PLATFORM_', '');
+      ctx.wizard.state.order.platform = platformName;
       
-      await ctx.reply('Pilih Tipe Layanan:', {
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('👥 Followers', 'TYPE_FOLLOWERS')],
-          [Markup.button.callback('❤️ Likes', 'TYPE_LIKES')],
-          [Markup.button.callback('❌ Batal', 'CANCEL')]
-        ])
+      const groupedServices = smmService.getGroupedServices();
+      const platformData = groupedServices.find(g => g.platform === platformName);
+      
+      if (!platformData || platformData.services.length === 0) {
+          await ctx.reply('Layanan untuk platform ini tidak tersedia.');
+          return ctx.scene.leave();
+      }
+
+      // Ambil unik kategori pada platform tersebut
+      const categoriesSet = new Set();
+      platformData.services.forEach(s => categoriesSet.add(s.category));
+      const categories = Array.from(categoriesSet).slice(0, 15); // Ambil maks 15 kategori supaya tidak terlalu penuh
+
+      const buttons = [];
+      let catIndex = 0;
+      categories.forEach(cat => {
+          // Bikin callback data yang unik tapi tidak over 64 bytes
+          const callbackData = `CAT_${catIndex++}`;
+          
+          // Simpan map di context
+          if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
+          ctx.wizard.state.catMap[callbackData] = cat;
+
+          buttons.push([Markup.button.callback(cat.substring(0, 40), callbackData)]);
+      });
+      buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
+
+      await ctx.reply(`Pilih Kategori ${platformName}:`, {
+        ...Markup.inlineKeyboard(buttons)
       });
       return ctx.wizard.next();
     }
@@ -110,71 +158,56 @@ const orderScene = new Scenes.WizardScene(
     const action = ctx.callbackQuery.data;
     if (action === 'CANCEL') return handleCancel(ctx);
     
-    ctx.wizard.state.order.type = action === 'TYPE_FOLLOWERS' ? 'Followers' : 'Likes';
-    await ctx.answerCbQuery();
-    
-    const loadingMessage = await ctx.reply('⏳ Mengambil daftar layanan dari server...');
-    
-    try {
-      // Use cached services to avoid hitting SMM API directly from bot routes
-      if (!smmService.servicesCache) {
-         await ctx.telegram.deleteMessage(ctx.chat.id, loadingMessage.message_id);
-         await ctx.reply('Layanan sedang disinkronisasi, silakan coba beberapa saat lagi.');
-         return ctx.scene.leave();
-      }
+    if (action.startsWith('CAT_')) {
+        await ctx.answerCbQuery();
+        const selectedCategory = ctx.wizard.state.catMap[action];
+        if (!selectedCategory) {
+            await ctx.reply('Kategori tidak valid atau sesi kadaluwarsa.');
+            return ctx.scene.leave();
+        }
 
-      const servicesData = smmService.servicesCache.raw;
-      let services = [];
+        ctx.wizard.state.order.category = selectedCategory;
+        
+        const loadingMessage = await ctx.reply('⏳ Mengambil daftar layanan...');
+        
+        try {
+            const groupedServices = smmService.getGroupedServices();
+            const platformData = groupedServices.find(g => g.platform === ctx.wizard.state.order.platform);
+            
+            if (!platformData) throw new Error('Data platform tidak ditemukan');
 
-      if (servicesData.status === true && Array.isArray(servicesData.services)) {
-        services = servicesData.services;
-      } else if (Array.isArray(servicesData)) {
-        services = servicesData;
-      } else if (servicesData.data && Array.isArray(servicesData.data)) {
-        services = servicesData.data;
-      }
-      
-      // Filter berdasarkan kategori
-      // Catatan: Nama kategori bisa bervariasi tergantung panel, 
-      // kita gunakan regex case insensitive untuk mencari 'instagram' dan 'follower'/'like'
-      const platformRegex = new RegExp(ctx.wizard.state.order.platform, 'i');
-      const typeRegex = new RegExp(ctx.wizard.state.order.type.replace('s', ''), 'i');
-      
-      const filteredServices = services.filter(s => {
-         const cat = (s.category || '').toLowerCase();
-         const name = (s.name || '').toLowerCase();
-         // Cocokkan kategori / nama dengan kata kunci
-         return (platformRegex.test(cat) || platformRegex.test(name)) && 
-                (typeRegex.test(cat) || typeRegex.test(name));
-      }).slice(0, 5); // Ambil 5 teratas saja agar Telegram tidak error tombol kepanjangan
-      
-      if (filteredServices.length === 0) {
-        await ctx.telegram.deleteMessage(ctx.chat.id, loadingMessage.message_id);
-        await ctx.reply('Maaf, layanan tidak tersedia saat ini. Silakan coba lagi nanti.');
-        return ctx.scene.leave();
-      }
+            const filteredServices = platformData.services
+                .filter(s => s.category === selectedCategory)
+                .slice(0, 10); // Max 10 layanan agar inline keyboard tidak error
+            
+            if (filteredServices.length === 0) {
+                await ctx.telegram.deleteMessage(ctx.chat.id, loadingMessage.message_id);
+                await ctx.reply('Maaf, layanan tidak tersedia saat ini.');
+                return ctx.scene.leave();
+            }
 
-      ctx.wizard.state.availableServices = filteredServices;
-      const ProfitEngine = require('../services/profit.engine');
-      
-      const buttons = await Promise.all(filteredServices.map(async s => {
-        const basePrice = parseFloat(s.rate || s.price);
-        const p = await ProfitEngine.calculatePrice(basePrice, 1000, s.category);
-        return [Markup.button.callback(`${s.name.substring(0, 40)} | ${formatRupiah(p.sell_price)}/K`, `SERVICE_${s.service}`)];
-      }));
-      
-      buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
+            ctx.wizard.state.availableServices = filteredServices;
+            const ProfitEngine = require('../services/profit.engine');
+            
+            const buttons = await Promise.all(filteredServices.map(async s => {
+                const basePrice = parseFloat(s.price || s.rate);
+                const p = await ProfitEngine.calculatePrice(basePrice, 1000, s.category);
+                return [Markup.button.callback(`${s.name.substring(0, 40)} | ${formatRupiah(p.sell_price)}/K`, `SERVICE_${s.service}`)];
+            }));
+            
+            buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
 
-      await ctx.telegram.deleteMessage(ctx.chat.id, loadingMessage.message_id);
-      await ctx.reply('Pilih layanan yang diinginkan (Menampilkan max 5):', {
-        ...Markup.inlineKeyboard(buttons)
-      });
-      return ctx.wizard.next();
+            await ctx.telegram.deleteMessage(ctx.chat.id, loadingMessage.message_id);
+            await ctx.reply(`Layanan dalam ${selectedCategory}:`, {
+                ...Markup.inlineKeyboard(buttons)
+            });
+            return ctx.wizard.next();
 
-    } catch (error) {
-      await ctx.telegram.deleteMessage(ctx.chat.id, loadingMessage.message_id);
-      await ctx.reply('Terjadi kesalahan saat mengambil layanan SMM.');
-      return ctx.scene.leave();
+        } catch (error) {
+            if (loadingMessage) await ctx.telegram.deleteMessage(ctx.chat.id, loadingMessage.message_id);
+            await ctx.reply('Terjadi kesalahan saat mengambil layanan SMM.');
+            return ctx.scene.leave();
+        }
     }
   },
 
@@ -218,7 +251,27 @@ const orderScene = new Scenes.WizardScene(
     
     // Simpan target
     if (!ctx.wizard.state.order.customDataCollected) {
-         ctx.wizard.state.order.target = ctx.message.text;
+         const target = ctx.message.text;
+         
+         // Validasi target universal
+         const isValidTarget = (
+            target.includes("instagram.com") ||
+            target.includes("tiktok.com") ||
+            target.includes("youtube.com") ||
+            target.includes("facebook.com") ||
+            target.includes("twitter.com") ||
+            target.includes("x.com") ||
+            target.includes("shopee") ||
+            target.includes("tokopedia") ||
+            /^[a-zA-Z0-9._@:/-]+$/.test(target)
+         );
+         
+         if (!isValidTarget) {
+             await ctx.reply('Target tidak valid. Masukkan URL atau format username yang valid.');
+             return;
+         }
+
+         ctx.wizard.state.order.target = target;
          
          // Jika ada input extra yang dibutuhkan berdasarkan type
          if (['custom_comment', 'mention_list'].includes(sType)) {
