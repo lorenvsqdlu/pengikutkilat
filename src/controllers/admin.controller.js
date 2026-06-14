@@ -57,7 +57,7 @@ class AdminController {
            const value = parts[2];
            if (!value || isNaN(value)) return ctx.reply('Format: /margin update <persentase_global>');
            
-           await db.query(`INSERT INTO settings (setting_key, setting_value) VALUES ('markup_percent', ?) ON DUPLICATE KEY UPDATE setting_value = ?`, [value, value]);
+           await db.query(`INSERT INTO settings (setting_key, setting_value) VALUES ('markup_percent', ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = ?`, [value, value]);
            return ctx.reply(`✅ Margin global diupdate menjadi ${value}%`);
         }
 
@@ -79,8 +79,8 @@ class AdminController {
            await db.query(`
               INSERT INTO category_margins (category_name, margin_type, margin_value) 
               VALUES (?, ?, ?) 
-              ON DUPLICATE KEY UPDATE margin_type = ?, margin_value = ?
-           `, [catNameRaw, type.toLowerCase(), value, type.toLowerCase(), value]);
+              ON CONFLICT(category_name) DO UPDATE SET margin_type = excluded.margin_type, margin_value = excluded.margin_value
+           `, [catNameRaw, type.toLowerCase(), value]);
 
            return ctx.reply(`✅ Margin untuk kategori "${catNameRaw}" diupdate menjadi ${value} (${type})`);
         }

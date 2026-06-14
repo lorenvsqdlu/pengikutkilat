@@ -20,9 +20,9 @@ class UserService {
     const query = `
       INSERT INTO users (telegram_id, username, fullname, balance)
       VALUES (?, ?, ?, 0)
-      ON DUPLICATE KEY UPDATE 
-        username = VALUES(username), 
-        fullname = VALUES(fullname)
+      ON CONFLICT(telegram_id) DO UPDATE SET
+        username = excluded.username, 
+        fullname = excluded.fullname
     `;
     const [result] = await db.query(query, [id, username, fullname]);
     return result;
@@ -58,8 +58,9 @@ class UserService {
    * Set lock_until for user (seconds)
    */
   static async setLock(telegramId, seconds) {
-    const query = `UPDATE users SET lock_until = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE telegram_id = ?`;
-    await db.query(query, [seconds, telegramId]);
+    const lockTime = new Date(Date.now() + seconds * 1000).toISOString().slice(0, 19).replace('T', ' ');
+    const query = `UPDATE users SET lock_until = ? WHERE telegram_id = ?`;
+    await db.query(query, [lockTime, telegramId]);
   }
 
   /**

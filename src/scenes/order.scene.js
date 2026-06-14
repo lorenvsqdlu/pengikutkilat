@@ -371,6 +371,7 @@ const orderScene = new Scenes.WizardScene(
                  user_id: userId,
                  price: orderState.totalPrice,
                  base_price: parseFloat(orderState.selectedService.rate || orderState.selectedService.price),
+                 quantity: orderState.quantity,
                  category: orderState.category,
                  smm_payload: smmPayload
              }

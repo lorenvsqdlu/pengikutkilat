@@ -21,7 +21,7 @@ class AdminService {
   }
 
   static async setSetting(key, value) {
-    await db.query(`INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`, [key, value]);
+    await db.query(`INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value`, [key, value]);
   }
 }
 

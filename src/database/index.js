@@ -1,114 +1,86 @@
-const mysql = require('mysql2/promise');
+const sqlite3 = require('sqlite3');
+const { open } = require('sqlite');
 const config = require('../config');
 const logger = require('../utils/logger');
+const fs = require('fs');
+const path = require('path');
 
-const pool = mysql.createPool({
-  host: config.DB_HOST,
-  user: config.DB_USER,
-  password: config.DB_PASS,
-  port: config.DB_PORT || 3306,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
+let db = null;
+
+async function checkDataDir() {
+  const dbPath = config.DB_PATH;
+  const dir = path.dirname(dbPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    logger.info(`Created database directory: ${dir}`);
+  }
+}
+
+async function connectDB() {
+  await checkDataDir();
+  db = await open({
+    filename: config.DB_PATH,
+    driver: sqlite3.Database
+  });
+  logger.info('SQLite Database Connected successfully.');
+  return db;
+}
 
 async function initDatabase() {
   try {
-    const initConn = await mysql.createConnection({
-      host: config.DB_HOST,
-      user: config.DB_USER,
-      password: config.DB_PASS,
-      port: config.DB_PORT || 3306
-    });
-    await initConn.query(`CREATE DATABASE IF NOT EXISTS \`${config.DB_NAME}\``);
-    await initConn.end();
-    logger.info('Database checked/created.');
-    
-    // Now setup the pool to use the selected database
-    const dbPool = mysql.createPool({
-      host: config.DB_HOST,
-      user: config.DB_USER,
-      password: config.DB_PASS,
-      database: config.DB_NAME,
-      port: config.DB_PORT || 3306,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    });
+    if (!db) await connectDB();
 
-    const conn = await dbPool.getConnection();
-
-    await conn.query(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         telegram_id BIGINT UNIQUE,
         username VARCHAR(100),
         fullname VARCHAR(255),
         balance BIGINT DEFAULT 0,
         lock_until DATETIME NULL,
         is_banned BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
 
-    await conn.query(`
       CREATE TABLE IF NOT EXISTS orders (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id BIGINT,
-        service_id INT,
+        service_id INTEGER,
         api_order_id VARCHAR(50),
         category VARCHAR(100),
         target TEXT,
-        quantity INT,
+        quantity INTEGER,
         price BIGINT DEFAULT 0,
         cost_price BIGINT DEFAULT 0,
         sell_price BIGINT DEFAULT 0,
         profit BIGINT DEFAULT 0,
         status VARCHAR(30) DEFAULT 'pending',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
 
-    await conn.query(`ALTER TABLE orders MODIFY COLUMN cost_price BIGINT DEFAULT 0`).catch(()=>{});
-    await conn.query(`ALTER TABLE orders MODIFY COLUMN sell_price BIGINT DEFAULT 0`).catch(()=>{});
-    await conn.query(`ALTER TABLE orders MODIFY COLUMN profit BIGINT DEFAULT 0`).catch(()=>{});
-
-    await conn.query(`
       CREATE TABLE IF NOT EXISTS refills (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        order_id INT,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER,
         refill_id VARCHAR(50),
         status VARCHAR(30),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
 
-    await conn.query(`
       CREATE TABLE IF NOT EXISTS category_margins (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        category_name VARCHAR(100),
-        margin_type ENUM('percent','fixed') DEFAULT 'percent',
-        margin_value INT DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_name VARCHAR(100) UNIQUE,
+        margin_type VARCHAR(20) DEFAULT 'percent',
+        margin_value INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
 
-    await conn.query(`
       CREATE TABLE IF NOT EXISTS settings (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        \`key\` VARCHAR(100) UNIQUE,
-        \`value\` TEXT
-      )
-    `);
-
-    // Fallback for settings if they don't use 'setting_key' anymore, or kept compatibility
-    // Make sure we have 'markup_percent' if it's missing
-    await conn.query(`INSERT IGNORE INTO settings (\`key\`, \`value\`) VALUES ('markup_percent', '20')`);
-
-    // Other tables needed for the bot to run properly
-    await conn.query(`
+        setting_key VARCHAR(100) PRIMARY KEY,
+        setting_value TEXT
+      );
+      
       CREATE TABLE IF NOT EXISTS deposits (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id BIGINT NOT NULL,
         reference_id VARCHAR(100) NOT NULL UNIQUE,
         amount DECIMAL(15,2) NOT NULL,
@@ -116,14 +88,16 @@ async function initDatabase() {
         status VARCHAR(50) DEFAULT 'Pending',
         payment_method VARCHAR(50),
         pay_url TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        paid_at TIMESTAMP NULL
-      )
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        paid_at DATETIME NULL
+      );
     `);
 
-    conn.release();
-    logger.info('MySQL Tables ready.');
-    return dbPool;
+    // Ensure default settings exist
+    await db.run('INSERT OR IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)', ['markup_percent', '20']);
+
+    logger.info('SQLite Tables initialized.');
+    return db;
   } catch (err) {
     logger.error('Database Init Error', err);
     throw err;
@@ -132,25 +106,38 @@ async function initDatabase() {
 
 class DatabaseParams {
   constructor() {
-    this.pool = pool; // Default placeholder
+    this.db = db;
   }
-  setPool(p) {
-    this.pool = p;
+  
+  async query(sql, params = []) {
+    if (!db) return [[], []];
+    const upper = sql.trim().toUpperCase();
+    if (upper.startsWith('INSERT') || upper.startsWith('UPDATE') || upper.startsWith('DELETE') || upper.startsWith('ALTER') || upper.startsWith('CREATE')) {
+      const result = await db.run(sql, params);
+      return [{ insertId: result.lastID, affectedRows: result.changes }, []];
+    } else {
+      const rows = await db.all(sql, params);
+      return [rows, []];
+    }
   }
-  async query(sql, params) {
-    if(!this.pool) return [[],[]];
-    return this.pool.query(sql, params);
+  
+  async execute(sql, params = []) {
+    if (!db) return [[], []]; 
+    const result = await db.run(sql, params);
+    // return structure compatible with MySQL execute for insert
+    return [{ insertId: result.lastID, affectedRows: result.changes }, []];
   }
-  async execute(sql, params) {
-    if(!this.pool) return [[],[]];
-    return this.pool.execute(sql, params);
+  
+  async get(sql, params = []) {
+    if (!db) return null;
+    return await db.get(sql, params);
   }
 }
+
 const dbInstance = new DatabaseParams();
 
 dbInstance.init = async () => {
-    const p = await initDatabase();
-    dbInstance.setPool(p);
+    await initDatabase();
 }
 
 module.exports = dbInstance;

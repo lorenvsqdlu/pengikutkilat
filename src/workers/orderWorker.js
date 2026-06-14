@@ -39,7 +39,7 @@ async function processOrder(job) {
     try {
         await delay(300); // delay anti limit
 
-        const { order_id, user_id, price, base_price, category, smm_payload } = job.payload;
+        const { order_id, user_id, price, base_price, quantity, category, smm_payload } = job.payload;
         
         // Double balance check strictly before hitting API
         const user = await UserService.getUser(user_id);
@@ -60,9 +60,9 @@ async function processOrder(job) {
             let sqlUpdates = [apiOrderId.toString(), 'Processing'];
             let sqlQuery = 'UPDATE orders SET api_order_id = ?, status = ?';
             
-            if (base_price && smm_payload.quantity) {
+            if (base_price && quantity) {
                 const ProfitEngine = require('../services/profit.engine');
-                const calculated = await ProfitEngine.calculatePrice(base_price, smm_payload.quantity, category || '');
+                const calculated = await ProfitEngine.calculatePrice(base_price, quantity, category || '');
                 sqlQuery += ', cost_price = ?, sell_price = ?, profit = ?';
                 sqlUpdates.push(calculated.cost_price, calculated.sell_price, calculated.profit);
             }
