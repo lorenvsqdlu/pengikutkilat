@@ -2,6 +2,7 @@ const { Telegraf, session, Scenes } = require('telegraf');
 const config = require('../config');
 const loggerMiddleware = require('../middlewares/logger.middleware');
 const errorMiddleware = require('../middlewares/error.middleware');
+const rateLimitMiddleware = require('../middlewares/ratelimit.middleware');
 
 const setupStartCommand = require('../commands/start');
 const setupUserCommands = require('../commands/user');
@@ -22,6 +23,7 @@ const bot = new Telegraf(config.BOT_TOKEN || 'DUMMY_TOKEN_PREVENT_CRASH');
 
 // Middlewares
 bot.use(session());
+bot.use(rateLimitMiddleware); // Proteksi spam
 bot.use(authMiddleware);
 bot.use(loggerMiddleware); // Pindahkan logger ke atas (setelah session)
 
@@ -51,6 +53,8 @@ bot.command('riwayat_deposit', DepositController.handleHistory);
 
 // Admin Routes Hook
 bot.command('admin', adminMiddleware, AdminController.handleAdminMenu);
+bot.command('profit', adminMiddleware, AdminController.handleProfit);
+bot.command('margin', adminMiddleware, AdminController.handleMargin);
 bot.action(/ADMIN_.*/, adminMiddleware, AdminController.handleCallback);
 bot.action(/DEP_(APPROVE|REJECT)_.*/, adminMiddleware, AdminController.handleCallback);
 

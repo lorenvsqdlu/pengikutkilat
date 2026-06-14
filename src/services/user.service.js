@@ -45,6 +45,24 @@ class UserService {
   }
 
   /**
+   * Check if user is locked
+   */
+  static async isLocked(telegramId) {
+    const [rows] = await db.query('SELECT lock_until FROM users WHERE telegram_id = ?', [telegramId]);
+    if (!rows[0] || !rows[0].lock_until) return false;
+    const lockUntil = new Date(rows[0].lock_until).getTime();
+    return lockUntil > Date.now();
+  }
+
+  /**
+   * Set lock_until for user (seconds)
+   */
+  static async setLock(telegramId, seconds) {
+    const query = `UPDATE users SET lock_until = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE telegram_id = ?`;
+    await db.query(query, [seconds, telegramId]);
+  }
+
+  /**
    * Update a user's balance
    * @param {number} telegramId
    * @param {number} amount (can be negative to decrease)

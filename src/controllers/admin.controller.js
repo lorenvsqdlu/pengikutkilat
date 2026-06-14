@@ -5,10 +5,92 @@ const { Markup } = require('telegraf');
 const BankService = require('../services/bank.service');
 const DepositService = require('../services/deposit.service');
 const UserService = require('../services/user.service');
+const ProfitEngine = require('../services/profit.engine');
+const db = require('../database');
 
 const formatRupiah = (angka) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(angka);
 
 class AdminController {
+  
+  static async handleProfit(ctx) {
+    const parts = ctx.message.text.split(' ');
+    const subCommand = parts[1] ? parts[1].toLowerCase() : '';
+
+    try {
+      if (subCommand === 'today') {
+        const total = await ProfitEngine.getDailyProfit();
+        return ctx.reply(`📊 *Profit Hari Ini:*\nRp ${total.toLocaleString('id-ID')}`, { parse_mode: 'Markdown' });
+      }
+
+      if (subCommand === 'total') {
+        const total = await ProfitEngine.getTotalProfit();
+        return ctx.reply(`📈 *Total Profit Keseluruhan:*\nRp ${total.toLocaleString('id-ID')}`, { parse_mode: 'Markdown' });
+      }
+
+      if (subCommand === 'category') {
+        const categories = await ProfitEngine.getProfitByCategory();
+        if (!categories || categories.length === 0) {
+            return ctx.reply('Belum ada data profit per kategori.');
+        }
+        let txt = `📊 *Profit per Kategori:*\n━━━━━━━━━━━━━━━━━\n`;
+        for (const cat of categories) {
+             const name = cat.category || 'Lainnya';
+             txt += `- ${name}: Rp ${parseFloat(cat.total).toLocaleString('id-ID')}\n`;
+        }
+        return ctx.reply(txt, { parse_mode: 'Markdown' });
+      }
+
+      return ctx.reply('⚠️ *Format Salah*\nGunakan perintah:\n/profit today\n/profit total\n/profit category', { parse_mode: 'Markdown' });
+    } catch (err) {
+      return ctx.reply('❌ Gagal mengambil data profit.');
+    }
+  }
+
+  static async handleMargin(ctx) {
+      const text = ctx.message.text;
+      const parts = text.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+      
+      const subCommand = parts[1] ? parts[1].toLowerCase() : '';
+
+      try {
+        if (subCommand === 'update') {
+           const value = parts[2];
+           if (!value || isNaN(value)) return ctx.reply('Format: /margin update <persentase_global>');
+           
+           await db.query(`INSERT INTO settings (setting_key, setting_value) VALUES ('markup_percent', ?) ON DUPLICATE KEY UPDATE setting_value = ?`, [value, value]);
+           return ctx.reply(`✅ Margin global diupdate menjadi ${value}%`);
+        }
+
+        if (subCommand === 'set') {
+           let catNameRaw = parts[2];
+           if (catNameRaw && catNameRaw.startsWith('"') && catNameRaw.endsWith('"')) {
+               catNameRaw = catNameRaw.slice(1, -1);
+           }
+           const value = parts[3];
+           const type = parts[4] || 'percent';
+
+           if (!catNameRaw || !value || isNaN(value)) {
+               return ctx.reply('Format: /margin set "Nama Kategori" <value> [percent/fixed]\nContoh: /margin set "Instagram Followers" 20 percent');
+           }
+
+           const validTypes = ['percent', 'fixed'];
+           if(!validTypes.includes(type.toLowerCase())) return ctx.reply('Type harus percent atau fixed');
+
+           await db.query(`
+              INSERT INTO category_margins (category_name, margin_type, margin_value) 
+              VALUES (?, ?, ?) 
+              ON DUPLICATE KEY UPDATE margin_type = ?, margin_value = ?
+           `, [catNameRaw, type.toLowerCase(), value, type.toLowerCase(), value]);
+
+           return ctx.reply(`✅ Margin untuk kategori "${catNameRaw}" diupdate menjadi ${value} (${type})`);
+        }
+
+        return ctx.reply('⚠️ *Format Salah*\nGunakan perintah:\n/margin update <value>\n/margin set "Kategori" <value> [percent/fixed]', { parse_mode: 'Markdown' });
+      } catch (err) {
+         return ctx.reply(`❌ Gagal mengatur margin: ${err.message}`);
+      }
+  }
+
   static async handleAdminMenu(ctx) {
     const menuText = `*MENU ADMIN*\nSilakan pilih menu di bawah ini:`;
     const buttons = [

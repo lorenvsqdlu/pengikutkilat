@@ -4,46 +4,47 @@ const logger = require('../utils/logger');
 
 class SMMService {
   constructor() {
-    this.apiUrl = config.SMM_API_URL;
+    this.apiUrl = config.SMM_API_URL || 'https://smmnusantara.id/api';
     this.apiKey = config.SMM_API_KEY;
+    this.apiId = config.SMM_API_ID;
+    
+    // Cache variables
+    this.servicesCache = null;
+    this.servicesCacheTime = 0;
+    this.CACHE_TTL = 10 * 60 * 1000; // 10 menit
     
     if (this.apiUrl) {
       this.client = axios.create({
         baseURL: this.apiUrl,
-        timeout: 10000, // 10 detik timeout
+        timeout: 15000, // 15 detik timeout
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
     }
   }
 
-  async _request(data) {
+  async _request(endpoint, data, retries = 2) {
     if (!this.client) {
       throw new Error('SMM API URL tidak dikonfigurasi.');
     }
 
     try {
-      // Kebanyakan API SMM menggunakan x-www-form-urlencoded
-      const params = new URLSearchParams();
-      
-      // Beberapa panel SMM menggunakan parameter 'api_key', lainnya menggunakan 'key'
-      params.append('api_key', this.apiKey); 
-      params.append('key', this.apiKey);
+      const payload = {
+        api_id: this.apiId,
+        api_key: this.apiKey,
+        ...data
+      };
 
-      for (const key in data) {
-        if (data.hasOwnProperty(key)) {
-          params.append(key, data[key]);
-        }
-      }
-
-      const response = await this.client.post('', params, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
-      });
-
+      const response = await this.client.post(endpoint, payload);
       return response.data;
     } catch (error) {
+      if (retries > 0) {
+        logger.warn(`SMM API Request failed on ${endpoint}, retrying... (${retries} retries left)`);
+        return this._request(endpoint, data, retries - 1);
+      }
       if (error.response) {
-        logger.error(`SMM API Error Response [${error.response.status}]`, JSON.stringify(error.response.data));
+        logger.error(`SMM API Error Response [${error.response.status}] on ${endpoint}`, JSON.stringify(error.response.data));
         throw new Error(`SMM API Error: ${error.response.status} - Gagal mengambil data server.`);
       } else if (error.request) {
         logger.error('SMM API Timeout/No Response', error.message);
@@ -56,8 +57,8 @@ class SMMService {
   }
 
   async testConnection() {
-    if (!this.apiUrl || !this.apiKey) {
-      logger.warn('SMM_API_URL atau SMM_API_KEY belum dikonfigurasi. Lewati test SMM API.');
+    if (!this.apiUrl || !this.apiKey || !this.apiId) {
+      logger.warn('SMM_API_URL, SMM_API_KEY atau SMM_API_ID belum dikonfigurasi. Lewati test SMM API.');
       return false;
     }
 
@@ -65,15 +66,14 @@ class SMMService {
       logger.info('Mencoba melakukan koneksi ke SMM API Nusantara...');
       const response = await this.getBalance();
       
-      // Berbagai bentuk respon sukses yang umum di SMM
-      if (response && response.balance !== undefined) {
-        logger.info(`✅ [SMM API SUCCESS] Terhubung ke API. Saldo saat ini: ${response.balance} ${response.currency || 'IDR'}`);
+      if (response && response.status === true && response.balance !== undefined) {
+        logger.info(`✅ [SMM API SUCCESS] Terhubung ke API. Saldo saat ini: ${response.balance}`);
         return true;
-      } else if (response && response.error) {
-        logger.warn(`⚠️ [SMM API TERHUBUNG DENGAN ERROR] Server merespon: ${response.error}`);
+      } else if (response && response.msg) {
+        logger.warn(`⚠️ [SMM API TERHUBUNG DENGAN ERROR] Server merespon: ${response.msg}`);
         return false;
       } else {
-        logger.info('✅ [SMM API SUCCESS] Terhubung ke API. (Respon API diluar standar /balance)');
+        logger.info('✅ [SMM API SUCCESS] Terhubung ke API. (Respon API diluar standar)');
         return true;
       }
     } catch (error) {
@@ -82,33 +82,109 @@ class SMMService {
     }
   }
 
-  async getServices() {
-    return this._request({ action: 'services' });
+  async getServices(forceRefresh = false) {
+    // Kembalikan dari cache jika masih valid
+    if (!forceRefresh && this.servicesCache && (Date.now() - this.servicesCacheTime < this.CACHE_TTL)) {
+      return this.servicesCache.raw;
+    }
+
+    const response = await this._request('/services', {});
+    
+    // Amankan dan cache jika data valid
+    if (response) {
+      let servicesList = [];
+      if (response.status === true && Array.isArray(response.services)) {
+        servicesList = response.services;
+      } else if (Array.isArray(response)) {
+        servicesList = response;
+      } else if (response.data && Array.isArray(response.data)) {
+        servicesList = response.data;
+      }
+      
+      if (servicesList.length > 0) {
+        // Group by category langsung
+        const grouped = {};
+        servicesList.forEach(s => {
+          const cat = s.category || 'Lainnya';
+          if (!grouped[cat]) grouped[cat] = [];
+          grouped[cat].push({
+            id: s.id || s.service,
+            service: s.service || s.id, // Untuk kompatibilitas
+            name: s.name,
+            type: s.type,
+            price: s.price || s.rate,
+            min: s.min,
+            max: s.max,
+            description: s.description || ''
+          });
+        });
+        
+        const groupedArr = Object.keys(grouped).map(cat => ({
+          category: cat,
+          services: grouped[cat]
+        }));
+        
+        this.servicesCache = {
+          raw: response,
+          grouped: groupedArr
+        };
+        this.servicesCacheTime = Date.now();
+        logger.info(`✅ [CACHE] Tersimpan ${servicesList.length} services dari provider ke dalam cache (Masa aktif 10 menit)`);
+      }
+    }
+    
+    return this.servicesCache ? this.servicesCache.raw : response;
   }
 
-  async createOrder(service, link, quantity, runs, interval) {
-    const data = {
-      action: 'add',
-      service,
-      link,
-      quantity
-    };
-    if (runs) data.runs = runs;
-    if (interval) data.interval = interval;
-    
-    return this._request(data);
+  getGroupedServices() {
+    if (!this.servicesCache) return [];
+    return this.servicesCache.grouped;
+  }
+
+  searchServices(query) {
+     if (!this.servicesCache) return [];
+     const lowerKwd = query.toLowerCase();
+     const results = [];
+     
+     this.servicesCache.grouped.forEach(g => {
+        // Cari di nama layanan atau nama kategori
+        const matchedServices = g.services.filter(s => s.name.toLowerCase().includes(lowerKwd));
+        if (matchedServices.length > 0 || g.category.toLowerCase().includes(lowerKwd)) {
+           results.push({
+              category: g.category,
+              services: matchedServices.length > 0 ? matchedServices : g.services
+           });
+        }
+     });
+     return results;
+  }
+
+  async createOrder(serviceData) {
+    /* 
+      serviceData berisi objek yang disesuaikan dengan jenis service, contoh:
+      { service: 9, target: "url", quantity: 100 }
+    */
+    return this._request('/order', serviceData);
   }
 
   async getOrderStatus(orderId) {
-    return this._request({ action: 'status', order: orderId });
+    return this._request('/status', { id: orderId.toString() });
   }
 
   async getOrdersStatus(orderIds) {
-    return this._request({ action: 'status', orders: orderIds.join(',') });
+    return this._request('/status', { id: orderIds.join(',') });
   }
 
   async getBalance() {
-    return this._request({ action: 'balance' });
+    return this._request('/balance', {});
+  }
+  
+  async refillOrder(orderId) {
+    return this._request('/refill', { id: orderId.toString() });
+  }
+  
+  async getRefillStatus(orderId) {
+    return this._request('/refill/status', { id: orderId.toString() });
   }
 }
 

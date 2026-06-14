@@ -16,10 +16,21 @@ CREATE TABLE IF NOT EXISTS orders (
   target VARCHAR(255) NOT NULL,
   quantity INT NOT NULL,
   price DECIMAL(15,2) NOT NULL,
+  cost_price DECIMAL(15,2) DEFAULT 0,
+  sell_price DECIMAL(15,2) DEFAULT 0,
   profit DECIMAL(15,2) DEFAULT 0,
+  category VARCHAR(100) NULL,
   status VARCHAR(50) DEFAULT 'Pending',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+);
+
+CREATE TABLE IF NOT EXISTS category_margins (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  category_name VARCHAR(100) NOT NULL UNIQUE,
+  margin_type VARCHAR(20) DEFAULT 'percent',
+  margin_value DECIMAL(15,2) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS deposits (
