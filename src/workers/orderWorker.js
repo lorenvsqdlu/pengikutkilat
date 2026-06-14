@@ -1,4 +1,4 @@
-const { orderQueue } = require('../queue');
+const QueueService = require('../services/queue.service');
 const smmService = require('../services/smm.service');
 const OrderService = require('../services/order.service');
 const UserService = require('../services/user.service');
@@ -13,24 +13,24 @@ async function recoverPendingOrders() {
         const [pending] = await db.query("SELECT * FROM orders WHERE status = 'Pending'");
         let count = 0;
         for (const order of pending) {
-            // Re-queue pending order
-            orderQueue.push({
-               type: 'order',
-               payload: {
-                   order_id: order.id,
-                   user_id: order.user_id,
-                   price: order.price,
-                   base_price: order.cost_price ? order.cost_price / order.quantity : 0,
-                   category: order.category,
-                   quantity: order.quantity,
-                   smm_payload: {
-                       service: order.service_id,
-                       target: order.target,
-                       quantity: order.quantity
-                   }
-               }
-            });
-            count++;
+            // Check if already in queue
+            const [q] = await db.query("SELECT id FROM orders_queue WHERE order_id = ?", [order.id]);
+            if (!q || q.length === 0) {
+                 await QueueService.pushOrder({
+                     order_id: order.id,
+                     user_id: order.user_id,
+                     price: order.price,
+                     base_price: order.cost_price ? order.cost_price / order.quantity : 0,
+                     category: order.category,
+                     quantity: order.quantity,
+                     smm_payload: {
+                         service: order.service_id,
+                         target: order.target,
+                         quantity: order.quantity
+                     }
+                 });
+                 count++;
+            }
         }
         if (count > 0) logger.info(`[WORKER] Auto-recovered ${count} pending orders from DB into queue.`);
     } catch (e) {
@@ -38,11 +38,15 @@ async function recoverPendingOrders() {
     }
 }
 
+// Processing lock to prevent double execution
+let isProcessing = false;
+
 async function processOrder(job) {
     try {
         await delay(300); // delay anti limit
 
-        const { order_id, user_id, price, base_price, quantity, category, smm_payload } = job.payload;
+        // SQLite job format is slightly different 
+        const { order_id, user_id, price, base_price, quantity, category, smm_payload } = job;
         
         // Double balance check strictly before hitting API
         const user = await UserService.getUser(user_id);
@@ -79,21 +83,25 @@ async function processOrder(job) {
             // Notifikasi sukses ke user
             const msg = `✅ *Order Diproses API!*\nID Order: \`${order_id}\`\nLayanan: ${smm_payload.service}\nTarget: ${smm_payload.target}\nHarga: Rp ${parseFloat(price).toLocaleString('id-ID')}\nSaldo telah dipotong.`;
             try { if (bot) await bot.telegram.sendMessage(user_id, msg, {parse_mode: 'Markdown'}); } catch(e){}
+            
+            await QueueService.completeOrder(job.id);
         } else {
             throw new Error(res.error || res.msg || 'SMM API gagal memproses order');
         }
     } catch (err) {
-        job.attempts++;
-        logger.error(`[Worker] Order ID ${job.payload.order_id} failed (Attempt ${job.attempts}): ${err.message}`);
+        job.retry_count = (job.retry_count || 0) + 1;
+        logger.error(`[Worker] Order ID ${job.order_id} failed (Attempt ${job.retry_count}): ${err.message}`);
 
-        if (job.attempts < job.maxAttempts && err.message !== 'Saldo tidak mencukupi saat proses dieksekusi.') {
-            await delay(job.attempts * 1000); // 1s, 2s, 3s delay
-            orderQueue.push(job); // retry
+        if (job.retry_count < 3 && err.message !== 'Saldo tidak mencukupi saat proses dieksekusi.') {
+            await delay(job.retry_count * 1000); // 1s, 2s, 3s delay
+            await QueueService.failOrder(job.id, job.retry_count);
         } else {
             // failed definitely
-            await OrderService.updateOrderStatus(job.payload.order_id, 'Canceled');
-            const msg = `❌ *Order Gagal Diproses*\nID Order: \`${job.payload.order_id}\`\nAlasan: ${err.message}\nSaldo Anda TIDAK dipotong.`;
-            try { if (bot) await bot.telegram.sendMessage(job.payload.user_id, msg, {parse_mode: 'Markdown'}); } catch(e){}
+            await OrderService.updateOrderStatus(job.order_id, 'Canceled');
+            const msg = `❌ *Order Gagal Diproses*\nID Order: \`${job.order_id}\`\nAlasan: ${err.message}\nSaldo Anda TIDAK dipotong.`;
+            try { if (bot) await bot.telegram.sendMessage(job.user_id, msg, {parse_mode: 'Markdown'}); } catch(e){}
+            
+            await QueueService.completeOrder(job.id); // Remove from queue after definitive fail
         }
     }
 }
@@ -104,13 +112,20 @@ function startOrderWorker(telegramBot) {
     
     logger.info('[WORKER] Order Worker started.');
     setInterval(async () => {
-        if (orderQueue.length() === 0) return;
-        const job = orderQueue.shift();
+        if (isProcessing) return;
+        isProcessing = true;
         
-        // Asynchronously process without blocking loop?
-        // Let's await it to keep processing sequential
-        await processOrder(job);
-    }, 400); // 400ms interval checks
+        try {
+            const job = await QueueService.popOrder();
+            if (job) {
+                await processOrder(job);
+            }
+        } catch (err) {
+            logger.error('[WORKER] Error popping job', err);
+        } finally {
+            isProcessing = false;
+        }
+    }, 500); // 500ms interval checks
 }
 
 module.exports = startOrderWorker;

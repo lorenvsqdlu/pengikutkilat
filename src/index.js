@@ -2,6 +2,11 @@ const express = require('express');
 const config = require('./config');
 const logger = require('./utils/logger');
 
+if (global.__BOT_RUNNING__) {
+  process.exit(0);
+}
+global.__BOT_RUNNING__ = true;
+
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught Exception', err);
 });

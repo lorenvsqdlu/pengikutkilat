@@ -1,21 +1,21 @@
-const { refillQueue } = require('../queue');
 const RefillService = require('../services/refill.service');
 const smmService = require('../services/smm.service');
 const logger = require('../utils/logger');
 
 let bot;
+let refillQueue = [];
 
 // Periodically fetch active refills and push to queue
 setInterval(async () => {
     try {
         const activeRefills = await RefillService.getActiveRefills();
-        refillQueue.queue = [];
+        refillQueue = [];
         
         for (const refill of activeRefills) {
             refillQueue.push(refill);
         }
-        if (refillQueue.length() > 0) {
-           // logger.info(`[REFILL WORKER] Added ${refillQueue.length()} pending refills to queue.`);
+        if (refillQueue.length > 0) {
+           // logger.info(`[REFILL WORKER] Added ${refillQueue.length} pending refills to queue.`);
         }
     } catch (e) {
         logger.error('[REFILL WORKER] Error fetching active refills', e);

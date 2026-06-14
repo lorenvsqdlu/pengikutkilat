@@ -1,4 +1,3 @@
-const { statusQueue } = require('../queue');
 const OrderService = require('../services/order.service');
 const smmService = require('../services/smm.service');
 const RefundService = require('../services/refund.service');
@@ -6,6 +5,7 @@ const UserService = require('../services/user.service');
 const logger = require('../utils/logger');
 
 let bot;
+let statusQueue = [];
 
 const formatRupiah = (angka) => {
   return new Intl.NumberFormat('id-ID', {
@@ -20,15 +20,15 @@ setInterval(async () => {
     try {
         const activeOrders = await OrderService.getActiveOrders();
         // Clear old queue to avoid duplicates if processing is slow
-        statusQueue.queue = [];
+        statusQueue = [];
         
         for (const order of activeOrders) {
             if (order.api_order_id && order.api_order_id !== 'N/A') {
                 statusQueue.push(order);
             }
         }
-        if (statusQueue.length() > 0) {
-           logger.info(`[STATUS WORKER] Added ${statusQueue.length()} pending orders to status queue.`);
+        if (statusQueue.length > 0) {
+           logger.info(`[STATUS WORKER] Added ${statusQueue.length} pending orders to status queue.`);
         }
     } catch (e) {
         logger.error('[STATUS WORKER] Error fetching active orders', e);

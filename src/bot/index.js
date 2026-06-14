@@ -17,6 +17,7 @@ const adminMiddleware = require('../middlewares/admin.middleware');
 const authMiddleware = require('../middlewares/auth.middleware');
 const AdminController = require('../controllers/admin.controller');
 const DepositController = require('../controllers/deposit.controller');
+const UserController = require('../controllers/user.controller');
 
 // Initialize Bot
 const bot = new Telegraf(config.BOT_TOKEN || 'DUMMY_TOKEN_PREVENT_CRASH');
@@ -50,6 +51,17 @@ setupUserCommands(bot);
 bot.command('order', (ctx) => ctx.scene.enter('ORDER_SCENE'));
 bot.command('deposit', (ctx) => ctx.scene.enter('DEPOSIT_SCENE'));
 bot.command('riwayat_deposit', DepositController.handleHistory);
+
+// General user action handlers from main menu
+bot.action('menu_order', (ctx) => ctx.scene.enter('ORDER_SCENE'));
+bot.action('menu_services', UserController.handleServices);
+bot.action('menu_deposit', (ctx) => ctx.scene.enter('DEPOSIT_SCENE'));
+bot.action('menu_history', DepositController.handleHistory);
+bot.action('menu_profile', UserController.handleProfile);
+bot.action('menu_balance', UserController.handleSaldo);
+bot.action('menu_refill', (ctx) => {
+  ctx.reply('Fitur Refill via Tombol sedang dalam pengembangan. Kirim /refill <Order_ID> untuk me-request refill sementara ini.');
+});
 
 // Admin Routes Hook
 bot.command('admin', adminMiddleware, AdminController.handleAdminMenu);

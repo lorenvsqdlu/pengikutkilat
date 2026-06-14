@@ -52,8 +52,11 @@ class UserController {
 
   static async handleServices(ctx) {
     try {
-      // Allow searching by parsing args
-      const keyword = ctx.message.text.split(' ').slice(1).join(' ');
+      // Allow searching by parsing args if from text command
+      let keyword = '';
+      if (ctx.message && ctx.message.text) {
+          keyword = ctx.message.text.split(' ').slice(1).join(' ');
+      }
       
       const smmService = require('../services/smm.service');
       const AdminService = require('../services/admin.service');

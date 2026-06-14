@@ -403,8 +403,6 @@ const orderScene = new Scenes.WizardScene(
             status: 'Pending'
           });
 
-          const { orderQueue } = require('../queue');
-          
           let smmPayload = {
               service: orderState.selectedService.service || orderState.selectedService.id,
               target: orderState.target,
@@ -417,9 +415,8 @@ const orderScene = new Scenes.WizardScene(
           if (orderState.media) smmPayload.media = orderState.media;
           if (orderState.answer_number) smmPayload.answer_number = orderState.answer_number;
 
-          orderQueue.push({
-             type: 'order',
-             payload: {
+          const QueueService = require('../services/queue.service');
+          await QueueService.pushOrder({
                  order_id: orderId,
                  user_id: userId,
                  price: orderState.totalPrice,
@@ -427,7 +424,6 @@ const orderScene = new Scenes.WizardScene(
                  quantity: orderState.quantity,
                  category: orderState.category,
                  smm_payload: smmPayload
-             }
           });
 
           const processingMessage = await ctx.reply(`⏳ *Pesanan Sedang Diproses*\n\nID Order: \`${orderId}\`\nPesanan Anda telah masuk dalam antrean sistem untuk diproses server penyedia. \nSaldo Anda dikurangi setelah order sukses pada sistem provider.\nSistem akan memberi notifikasi otomatis.`, { parse_mode: 'Markdown' });

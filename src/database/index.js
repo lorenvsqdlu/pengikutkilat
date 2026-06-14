@@ -74,6 +74,22 @@ async function initDatabase() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS orders_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER,
+        user_id BIGINT,
+        service_id INTEGER,
+        target TEXT,
+        quantity INTEGER,
+        price BIGINT,
+        base_price DECIMAL(15,8),
+        category VARCHAR(100),
+        status VARCHAR(20) DEFAULT 'pending',
+        retry_count INTEGER DEFAULT 0,
+        smm_payload TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS settings (
         setting_key VARCHAR(100) PRIMARY KEY,
         setting_value TEXT
