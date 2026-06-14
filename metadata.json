@@ -1,0 +1,6 @@
+{
+  "name": "Telegraf MySQL Bot",
+  "description": "A structured Telegram bot built with Node.js, Telegraf, and MySQL.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

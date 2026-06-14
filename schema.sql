@@ -1,0 +1,90 @@
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  telegram_id BIGINT NOT NULL UNIQUE,
+  username VARCHAR(255),
+  fullname VARCHAR(255),
+  balance DECIMAL(15,2) DEFAULT 0,
+  is_banned BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT NOT NULL, -- references telegram_id
+  service_id VARCHAR(50) NOT NULL,
+  api_order_id VARCHAR(50),
+  target VARCHAR(255) NOT NULL,
+  quantity INT NOT NULL,
+  price DECIMAL(15,2) NOT NULL,
+  profit DECIMAL(15,2) DEFAULT 0,
+  status VARCHAR(50) DEFAULT 'Pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+);
+
+CREATE TABLE IF NOT EXISTS deposits (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT NOT NULL, -- references telegram_id
+  reference_id VARCHAR(100) NOT NULL UNIQUE,
+  amount DECIMAL(15,2) NOT NULL,
+  fee DECIMAL(15,2) DEFAULT 0,
+  status VARCHAR(50) DEFAULT 'Pending',
+  payment_method VARCHAR(50),
+  pay_url TEXT,
+  proof_image TEXT,
+  admin_id BIGINT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  paid_at TIMESTAMP NULL,
+  approved_at TIMESTAMP NULL,
+  FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+);
+
+CREATE TABLE IF NOT EXISTS banks (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  bank_name VARCHAR(100) NOT NULL,
+  account_number VARCHAR(100) NOT NULL,
+  account_name VARCHAR(100) NOT NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  setting_key VARCHAR(50) PRIMARY KEY,
+  setting_value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_logs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  admin_id BIGINT NOT NULL,
+  action VARCHAR(255) NOT NULL,
+  details TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS refunds (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  order_id INT NOT NULL,
+  user_id BIGINT NOT NULL,
+  amount DECIMAL(15,2) NOT NULL,
+  reason VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (order_id) REFERENCES orders(id),
+  FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+);
+
+CREATE TABLE IF NOT EXISTS qris_accounts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  qris_name VARCHAR(100) NOT NULL,
+  qris_image TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS admins (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(50) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  role VARCHAR(50) DEFAULT 'admin',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+

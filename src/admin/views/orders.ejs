@@ -1,0 +1,57 @@
+<div class="content-header">
+    <div class="container-fluid"><h1 class="m-0"><%= title %></h1></div>
+</div>
+<div class="content">
+    <div class="container-fluid">
+        <div class="card">
+            <div class="card-body">
+                <table id="ordersTable" class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>User</th>
+                            <th>Service API</th>
+                            <th>API Order ID</th>
+                            <th>Target</th>
+                            <th>Quantity</th>
+                            <th>Price</th>
+                            <th>Profit</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% orders.forEach(order => { %>
+                        <tr>
+                            <td><%= order.id %></td>
+                            <td><%= order.users ? order.users.username : 'Unknown' %></td>
+                            <td><%= order.service_id %></td>
+                            <td><%= order.api_order_id %></td>
+                            <td><%= order.target.substring(0, 30) %></td>
+                            <td><%= order.quantity %></td>
+                            <td>Rp <%= parseFloat(order.price).toLocaleString('id-ID') %></td>
+                            <td>Rp <%= parseFloat(order.profit).toLocaleString('id-ID') %></td>
+                            <td>
+                                <% if(order.status === 'Completed'){ %><span class="badge badge-success">Completed</span><% } %>
+                                <% if(order.status === 'Pending'){ %><span class="badge badge-warning">Pending</span><% } %>
+                                <% if(order.status === 'Canceled' || order.status === 'Cancelled'){ %><span class="badge badge-danger">Cancelled</span><% } %>
+                                <% if(order.status === 'Processing' || order.status === 'In progress'){ %><span class="badge badge-info"><%= order.status %></span><% } %>
+                                <% if(order.status === 'Partial'){ %><span class="badge badge-secondary">Partial</span><% } %>
+                            </td>
+                        </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+<% extraScripts = `
+<script>
+    $(function () {
+        $('#ordersTable').DataTable({
+            "responsive": true, "lengthChange": false, "autoWidth": false,
+            "buttons": ["copy", "csv", "excel", "pdf", "print"]
+        }).buttons().container().appendTo('#ordersTable_wrapper .col-md-6:eq(0)');
+    });
+</script>
+` %>
