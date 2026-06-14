@@ -6,159 +6,151 @@ const pool = mysql.createPool({
   host: config.DB_HOST,
   user: config.DB_USER,
   password: config.DB_PASS,
-  database: config.DB_NAME,
+  port: config.DB_PORT || 3306,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
 });
 
-// Test connection and auto-migrate
-pool.getConnection()
-  .then(async conn => {
-    logger.info('MySQL Database Connected successfully.');
+async function initDatabase() {
+  try {
+    const initConn = await mysql.createConnection({
+      host: config.DB_HOST,
+      user: config.DB_USER,
+      password: config.DB_PASS,
+      port: config.DB_PORT || 3306
+    });
+    await initConn.query(`CREATE DATABASE IF NOT EXISTS \`${config.DB_NAME}\``);
+    await initConn.end();
+    logger.info('Database checked/created.');
     
-    // Auto-migration wrapper
-    const autoMigrate = async () => {
-      try {
-        await conn.query(`ALTER TABLE users ADD COLUMN lock_until DATETIME NULL`);
-        logger.info('Migrated: users.lock_until');
-      } catch(e) {}
-      
-      try {
-        await conn.query(`ALTER TABLE users ADD COLUMN is_banned BOOLEAN DEFAULT FALSE`);
-        logger.info('Migrated: users.is_banned');
-      } catch(e) {}
-      
-      try {
-        await conn.query(`ALTER TABLE orders ADD COLUMN profit DECIMAL(15,2) DEFAULT 0`);
-        logger.info('Migrated: orders.profit');
-      } catch(e) {}
-      
-      try {
-        await conn.query(`ALTER TABLE orders ADD COLUMN cost_price DECIMAL(15,2) DEFAULT 0`);
-        logger.info('Migrated: orders.cost_price');
-      } catch(e) {}
+    // Now setup the pool to use the selected database
+    const dbPool = mysql.createPool({
+      host: config.DB_HOST,
+      user: config.DB_USER,
+      password: config.DB_PASS,
+      database: config.DB_NAME,
+      port: config.DB_PORT || 3306,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0
+    });
 
-      try {
-        await conn.query(`ALTER TABLE orders ADD COLUMN sell_price DECIMAL(15,2) DEFAULT 0`);
-        logger.info('Migrated: orders.sell_price');
-      } catch(e) {}
+    const conn = await dbPool.getConnection();
 
-      try {
-        await conn.query(`ALTER TABLE orders ADD COLUMN category VARCHAR(100) NULL`);
-        logger.info('Migrated: orders.category');
-      } catch(e) {}
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        telegram_id BIGINT UNIQUE,
+        username VARCHAR(100),
+        fullname VARCHAR(255),
+        balance BIGINT DEFAULT 0,
+        lock_until DATETIME NULL,
+        is_banned BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-      try {
-        await conn.query(`
-          CREATE TABLE IF NOT EXISTS category_margins (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            category_name VARCHAR(100) NOT NULL UNIQUE,
-            margin_type VARCHAR(20) DEFAULT 'percent',
-            margin_value DECIMAL(15,2) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-      } catch(e) {}
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT,
+        service_id INT,
+        api_order_id VARCHAR(50),
+        category VARCHAR(100),
+        target TEXT,
+        quantity INT,
+        price BIGINT DEFAULT 0,
+        cost_price BIGINT DEFAULT 0,
+        sell_price BIGINT DEFAULT 0,
+        profit BIGINT DEFAULT 0,
+        status VARCHAR(30) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-      try {
-        await conn.query(`
-          CREATE TABLE IF NOT EXISTS settings (
-            setting_key VARCHAR(50) PRIMARY KEY,
-            setting_value TEXT NOT NULL
-          )
-        `);
-        await conn.query(`
-          CREATE TABLE IF NOT EXISTS admin_logs (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            admin_id BIGINT NOT NULL,
-            action VARCHAR(255) NOT NULL,
-            details TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-        await conn.query(`
-          CREATE TABLE IF NOT EXISTS deposits (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id BIGINT NOT NULL,
-            reference_id VARCHAR(100) NOT NULL UNIQUE,
-            amount DECIMAL(15,2) NOT NULL,
-            fee DECIMAL(15,2) DEFAULT 0,
-            status VARCHAR(50) DEFAULT 'Pending',
-            payment_method VARCHAR(50),
-            pay_url TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            paid_at TIMESTAMP NULL,
-            FOREIGN KEY (user_id) REFERENCES users(telegram_id)
-          )
-        `);
-        await conn.query(`
-          CREATE TABLE IF NOT EXISTS refunds (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            order_id INT NOT NULL,
-            user_id BIGINT NOT NULL,
-            amount DECIMAL(15,2) NOT NULL,
-            reason VARCHAR(255) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (order_id) REFERENCES orders(id),
-            FOREIGN KEY (user_id) REFERENCES users(telegram_id)
-          )
-        `);
-        await conn.query(`
-          CREATE TABLE IF NOT EXISTS refills (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            order_id INT NOT NULL,
-            user_id BIGINT NOT NULL,
-            api_refill_id VARCHAR(50) NOT NULL,
-            status VARCHAR(50) DEFAULT 'Pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (order_id) REFERENCES orders(id),
-            FOREIGN KEY (user_id) REFERENCES users(telegram_id)
-          )
-        `);
-        await conn.query(`
-          CREATE TABLE IF NOT EXISTS admins (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(50) NOT NULL UNIQUE,
-            password VARCHAR(255) NOT NULL,
-            role VARCHAR(50) DEFAULT 'admin',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-        await conn.query(`
-          CREATE TABLE IF NOT EXISTS banks (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            bank_name VARCHAR(100) NOT NULL,
-            account_number VARCHAR(100) NOT NULL,
-            account_name VARCHAR(100) NOT NULL,
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-        await conn.query(`
-          CREATE TABLE IF NOT EXISTS qris_accounts (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            qris_name VARCHAR(100) NOT NULL,
-            qris_image TEXT NOT NULL,
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-        try { await conn.query(`ALTER TABLE deposits ADD COLUMN proof_image TEXT`); } catch(e){}
-        try { await conn.query(`ALTER TABLE deposits ADD COLUMN admin_id BIGINT`); } catch(e){}
-        try { await conn.query(`ALTER TABLE deposits ADD COLUMN approved_at TIMESTAMP NULL`); } catch(e){}
-        
-        await conn.query(`INSERT IGNORE INTO settings (setting_key, setting_value) VALUES ('markup_percent', '20')`);
-      } catch(e) {
-        logger.error('Table migration error:', e);
-      }
-    };
-    
-    await autoMigrate();
+    await conn.query(`ALTER TABLE orders MODIFY COLUMN cost_price BIGINT DEFAULT 0`).catch(()=>{});
+    await conn.query(`ALTER TABLE orders MODIFY COLUMN sell_price BIGINT DEFAULT 0`).catch(()=>{});
+    await conn.query(`ALTER TABLE orders MODIFY COLUMN profit BIGINT DEFAULT 0`).catch(()=>{});
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS refills (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        order_id INT,
+        refill_id VARCHAR(50),
+        status VARCHAR(30),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS category_margins (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        category_name VARCHAR(100),
+        margin_type ENUM('percent','fixed') DEFAULT 'percent',
+        margin_value INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS settings (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        \`key\` VARCHAR(100) UNIQUE,
+        \`value\` TEXT
+      )
+    `);
+
+    // Fallback for settings if they don't use 'setting_key' anymore, or kept compatibility
+    // Make sure we have 'markup_percent' if it's missing
+    await conn.query(`INSERT IGNORE INTO settings (\`key\`, \`value\`) VALUES ('markup_percent', '20')`);
+
+    // Other tables needed for the bot to run properly
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deposits (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        reference_id VARCHAR(100) NOT NULL UNIQUE,
+        amount DECIMAL(15,2) NOT NULL,
+        fee DECIMAL(15,2) DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'Pending',
+        payment_method VARCHAR(50),
+        pay_url TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        paid_at TIMESTAMP NULL
+      )
+    `);
+
     conn.release();
-  })
-  .catch(err => {
-    logger.error('MySQL Database Connection Error', err);
-  });
+    logger.info('MySQL Tables ready.');
+    return dbPool;
+  } catch (err) {
+    logger.error('Database Init Error', err);
+    throw err;
+  }
+}
 
-module.exports = pool;
+class DatabaseParams {
+  constructor() {
+    this.pool = pool; // Default placeholder
+  }
+  setPool(p) {
+    this.pool = p;
+  }
+  async query(sql, params) {
+    if(!this.pool) return [[],[]];
+    return this.pool.query(sql, params);
+  }
+  async execute(sql, params) {
+    if(!this.pool) return [[],[]];
+    return this.pool.execute(sql, params);
+  }
+}
+const dbInstance = new DatabaseParams();
+
+dbInstance.init = async () => {
+    const p = await initDatabase();
+    dbInstance.setPool(p);
+}
+
+module.exports = dbInstance;

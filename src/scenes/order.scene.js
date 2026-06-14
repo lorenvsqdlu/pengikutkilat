@@ -343,9 +343,9 @@ const orderScene = new Scenes.WizardScene(
             target: orderState.target,
             quantity: orderState.quantity,
             price: orderState.totalPrice, // back compat
-            cost_price: orderState.costPrice,
+            cost_price: 0,
             sell_price: orderState.totalPrice,
-            profit: orderState.profit,
+            profit: 0,
             category: orderState.category,
             status: 'Pending'
           });
@@ -370,6 +370,8 @@ const orderScene = new Scenes.WizardScene(
                  order_id: orderId,
                  user_id: userId,
                  price: orderState.totalPrice,
+                 base_price: parseFloat(orderState.selectedService.rate || orderState.selectedService.price),
+                 category: orderState.category,
                  smm_payload: smmPayload
              }
           });

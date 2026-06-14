@@ -95,13 +95,10 @@ async function startStatusWorker(telegramBot) {
                                }
                                
                                if (remains > 0 && remains <= order.quantity) {
-                                   let charge = parseFloat(apiData.charge);
-                                   if (isNaN(charge)) charge = parseFloat(order.price);
-                                   
-                                   let startCount = parseInt(apiData.start_count);
-                                   if (isNaN(startCount) || startCount === 0) startCount = parseInt(order.quantity);
+                                   let sellPrice = parseFloat(order.sell_price || order.price);
+                                   let orderQuantity = parseInt(order.quantity);
 
-                                   const refundAmount = Math.floor((charge / startCount) * remains);
+                                   const refundAmount = Math.floor((sellPrice / orderQuantity) * remains);
                                    if (refundAmount > 0) {
                                        const refundId = await RefundService.createRefund(order.id, order.user_id, refundAmount, `Refund for status ${newStatus} with ${remains} remains`);
                                        if (refundId > 0) {

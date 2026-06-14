@@ -37,9 +37,9 @@ async function recoverPendingOrders() {
 
 async function processOrder(job) {
     try {
-        await delay(400); // delay anti limit
+        await delay(300); // delay anti limit
 
-        const { order_id, user_id, price, smm_payload } = job.payload;
+        const { order_id, user_id, price, base_price, category, smm_payload } = job.payload;
         
         // Double balance check strictly before hitting API
         const user = await UserService.getUser(user_id);
@@ -56,10 +56,22 @@ async function processOrder(job) {
             // Deduct balance ONLY AFTER SUCCESS API
             await UserService.updateBalance(user_id, -price);
 
-            // Update order status
-            const updateQuery = 'UPDATE orders SET api_order_id = ?, status = ? WHERE id = ?';
+            // PROFIT ENGINE CALCULATION IN WORKER
+            let sqlUpdates = [apiOrderId.toString(), 'Processing'];
+            let sqlQuery = 'UPDATE orders SET api_order_id = ?, status = ?';
+            
+            if (base_price && smm_payload.quantity) {
+                const ProfitEngine = require('../services/profit.engine');
+                const calculated = await ProfitEngine.calculatePrice(base_price, smm_payload.quantity, category || '');
+                sqlQuery += ', cost_price = ?, sell_price = ?, profit = ?';
+                sqlUpdates.push(calculated.cost_price, calculated.sell_price, calculated.profit);
+            }
+            
+            sqlQuery += ' WHERE id = ?';
+            sqlUpdates.push(order_id);
+
             const db = require('../database');
-            await db.query(updateQuery, [apiOrderId.toString(), 'Processing', order_id]);
+            await db.query(sqlQuery, sqlUpdates);
             
             // Notifikasi sukses ke user
             const msg = `✅ *Order Diproses API!*\nID Order: \`${order_id}\`\nLayanan: ${smm_payload.service}\nTarget: ${smm_payload.target}\nHarga: Rp ${parseFloat(price).toLocaleString('id-ID')}\nSaldo telah dipotong.`;
