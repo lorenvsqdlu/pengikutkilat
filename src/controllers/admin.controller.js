@@ -121,7 +121,7 @@ class AdminController {
 
   static async handleCallback(ctx) {
      const action = ctx.match[0];
-     await ctx.answerCbQuery();
+     await ctx.answerCbQuery().catch(() => {});
      
      if (action === 'ADMIN_MENU') return AdminController.handleAdminMenu(ctx);
      
@@ -200,7 +200,7 @@ class AdminController {
      }
      
      if (action === 'ADMIN_ADD_QRIS') {
-         await ctx.answerCbQuery();
+         await ctx.answerCbQuery().catch(() => {});
          return ctx.scene.enter('ADMIN_ADD_QRIS_SCENE');
      }
 

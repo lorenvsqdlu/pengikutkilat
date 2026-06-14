@@ -40,12 +40,12 @@ const qrisPaymentScene = new Scenes.WizardScene(
         if (!ctx.callbackQuery) return;
         const action = ctx.callbackQuery.data;
         if (action === 'CANCEL') {
-            await ctx.answerCbQuery();
+            await ctx.answerCbQuery().catch(() => {});
             await ctx.reply('❌ Pembayaran QRIS dibatalkan.');
             return ctx.scene.leave();
         }
         if (action === 'DEP_QRIS_CONFIRM') {
-            await ctx.answerCbQuery();
+            await ctx.answerCbQuery().catch(() => {});
             // Go to manual deposit flow with PaymentMethod "QRIS Manual"
             ctx.scene.enter('MANUAL_DEPOSIT_SCENE', { method: 'QRIS Manual' });
             return;

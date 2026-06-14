@@ -7,7 +7,7 @@ module.exports = async (ctx, next) => {
   
   if (!adminIds.includes(ctx.from.id.toString())) {
     if (ctx.callbackQuery) {
-      return ctx.answerCbQuery('❌ Akses ditolak. Anda bukan admin.', { show_alert: true });
+      return ctx.answerCbQuery('❌ Akses ditolak. Anda bukan admin.', { show_alert: true }).catch(() => {});
     }
     return ctx.reply('❌ Akses ditolak. Anda bukan admin.');
   }

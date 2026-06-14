@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 class UserController {
   static async handleProfile(ctx) {
     try {
+      if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
       const user = await UserService.getUser(ctx.from.id);
       
       if (!user) {

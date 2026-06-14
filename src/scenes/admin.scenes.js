@@ -39,7 +39,7 @@ const adminBroadcastScene = new Scenes.WizardScene(
     
     if (targetType === 'all') {
        if (!ctx.callbackQuery) return;
-       await ctx.answerCbQuery();
+       await ctx.answerCbQuery().catch(() => {});
        if (ctx.callbackQuery.data === 'CANCEL') {
            await ctx.editMessageText('Broadcast dibatalkan.');
            return ctx.scene.leave();

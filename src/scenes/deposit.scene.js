@@ -54,19 +54,19 @@ const depositScene = new Scenes.WizardScene(
       if (action === 'CANCEL') return handleCancel(ctx);
       
       if (action === 'DEP_MANUAL') {
-          await ctx.answerCbQuery();
+          await ctx.answerCbQuery().catch(() => {});
           ctx.scene.enter('MANUAL_DEPOSIT_SCENE');
           return;
       }
       
       if (action === 'DEP_QRIS') {
-          await ctx.answerCbQuery();
+          await ctx.answerCbQuery().catch(() => {});
           ctx.scene.enter('QRIS_PAYMENT_SCENE');
           return;
       }
       
       if (action === 'DEP_AUTO') {
-          await ctx.answerCbQuery();
+          await ctx.answerCbQuery().catch(() => {});
           await ctx.reply('Masukkan nominal deposit otomatis yang Anda inginkan (Min: Rp 10.000).\nContoh: 50000\n\nKetik /cancel untuk membatalkan.');
           ctx.wizard.state.mode = 'AUTO';
           return ctx.wizard.next();
@@ -101,7 +101,7 @@ const depositScene = new Scenes.WizardScene(
     if (action === 'CANCEL') return handleCancel(ctx);
 
     if (action === 'CONFIRM_DEPOSIT') {
-      await ctx.answerCbQuery();
+      await ctx.answerCbQuery().catch(() => {});
       const loadMsg = await ctx.reply('⏳ Sedang dihubungkan ke Payment Gateway...');
 
       try {

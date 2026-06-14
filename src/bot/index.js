@@ -53,14 +53,33 @@ bot.command('deposit', (ctx) => ctx.scene.enter('DEPOSIT_SCENE'));
 bot.command('riwayat_deposit', DepositController.handleHistory);
 
 // General user action handlers from main menu
-bot.action('menu_order', (ctx) => ctx.scene.enter('ORDER_SCENE'));
-bot.action('menu_services', UserController.handleServices);
-bot.action('menu_deposit', (ctx) => ctx.scene.enter('DEPOSIT_SCENE'));
-bot.action('menu_history', DepositController.handleHistory);
-bot.action('menu_profile', UserController.handleProfile);
-bot.action('menu_balance', UserController.handleSaldo);
-bot.action('menu_refill', (ctx) => {
-  ctx.reply('Fitur Refill via Tombol sedang dalam pengembangan. Kirim /refill <Order_ID> untuk me-request refill sementara ini.');
+bot.action('menu_order', async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  await ctx.scene.enter('ORDER_SCENE');
+});
+bot.action('menu_services', async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  await UserController.handleServices(ctx);
+});
+bot.action('menu_deposit', async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  await ctx.scene.enter('DEPOSIT_SCENE');
+});
+bot.action('menu_history', async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  await DepositController.handleHistory(ctx);
+});
+bot.action('menu_profile', async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  await UserController.handleProfile(ctx);
+});
+bot.action('menu_balance', async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  await UserController.handleSaldo(ctx);
+});
+bot.action('menu_refill', async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  await ctx.reply('Fitur Refill via Tombol sedang dalam pengembangan. Kirim /refill <Order_ID> untuk me-request refill sementara ini.');
 });
 
 // Admin Routes Hook

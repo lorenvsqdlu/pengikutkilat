@@ -67,6 +67,7 @@ const orderScene = new Scenes.WizardScene(
   'ORDER_SCENE',
   // Step 1: Menu Utama -> Pilih Kategori Platform (Instagram, TikTok, dll)
   async (ctx) => {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     ctx.wizard.state.order = {};
     
     if (!smmService.servicesCache) {
@@ -112,7 +113,7 @@ const orderScene = new Scenes.WizardScene(
     if (action === 'CANCEL') return handleCancel(ctx);
     
     if (action.startsWith('PLATFORM_')) {
-      await ctx.answerCbQuery();
+      await ctx.answerCbQuery().catch(() => {});
       const platformName = action.replace('PLATFORM_', '');
       ctx.wizard.state.order.platform = platformName;
       
@@ -159,7 +160,7 @@ const orderScene = new Scenes.WizardScene(
     if (action === 'CANCEL') return handleCancel(ctx);
     
     if (action.startsWith('CAT_')) {
-        await ctx.answerCbQuery();
+        await ctx.answerCbQuery().catch(() => {});
         const selectedCategory = ctx.wizard.state.catMap[action];
         if (!selectedCategory) {
             await ctx.reply('Kategori tidak valid atau sesi kadaluwarsa.');
@@ -220,7 +221,7 @@ const orderScene = new Scenes.WizardScene(
     if (action === 'CANCEL') return handleCancel(ctx);
     
     if (action.startsWith('SERVICE_')) {
-      await ctx.answerCbQuery();
+      await ctx.answerCbQuery().catch(() => {});
       const serviceId = action.replace('SERVICE_', '');
       const selectedService = ctx.wizard.state.availableServices.find(s => s.service == serviceId);
       
@@ -360,11 +361,11 @@ const orderScene = new Scenes.WizardScene(
       const userId = ctx.from.id;
       
       if (orderLocks.has(userId)) {
-          await ctx.answerCbQuery('Order Anda sebelumnya masih ditambahkan, mohon tunggu...', { show_alert: true });
+          await ctx.answerCbQuery('Order Anda sebelumnya masih ditambahkan, mohon tunggu...', { show_alert: true }).catch(() => {});
           return;
       }
       
-      await ctx.answerCbQuery();
+      await ctx.answerCbQuery().catch(() => {});
       orderLocks.add(userId);
       
       try {
