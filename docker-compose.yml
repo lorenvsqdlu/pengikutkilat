@@ -7,24 +7,11 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - DATABASE_URL=mysql://root:password@db:3306/telegram_bot
       - PORT=3000
     env_file:
       - .env
-    depends_on:
-      - db
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      - ./data:/app/data
 
-  db:
-    image: mysql:8.0
-    restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: telegram_bot
-    volumes:
-      - db_data:/var/lib/mysql
-
-volumes:
-  db_data:

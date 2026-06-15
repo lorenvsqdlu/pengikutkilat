@@ -9,12 +9,13 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "sqlite": "^5.1.1",
-    "sqlite3": "^6.0.1",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "multer": "*",
+    "node-cron": "^4.2.1",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1",
     "telegraf": "^4.15.0",
-    "winston": "^3.11.0",
-    "multer": "*"
+    "winston": "^3.11.0"
   }
 }

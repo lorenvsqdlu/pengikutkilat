@@ -48,20 +48,27 @@ async function processOrder(job) {
         // SQLite job format is slightly different 
         const { order_id, user_id, price, base_price, quantity, category, smm_payload } = job;
         
-        // Double balance check strictly before hitting API
+        // Check balance and deduct immediately to prevent race conditions
         const user = await UserService.getUser(user_id);
         if (!user || parseFloat(user.balance) < parseFloat(price)) {
              await OrderService.updateOrderStatus(order_id, 'Canceled');
              throw new Error('Saldo tidak mencukupi saat proses dieksekusi.');
         }
 
-        const res = await smmService.createOrder(smm_payload);
+        // Deduct balance BEFORE hitting API
+        await UserService.updateBalance(user_id, -price);
+
+        let res;
+        try {
+            res = await smmService.createOrder(smm_payload);
+        } catch (apiError) {
+            // Refund on critical API error
+            await UserService.updateBalance(user_id, price);
+            throw apiError;
+        }
 
         if (res && (res.order || res.id || res.status === 'success' || res.status === true)) {
             const apiOrderId = res.order || res.id || res.order_id || 'N/A';
-            
-            // Deduct balance ONLY AFTER SUCCESS API
-            await UserService.updateBalance(user_id, -price);
 
             // PROFIT ENGINE CALCULATION IN WORKER
             let sqlUpdates = [apiOrderId.toString(), 'Processing'];
@@ -86,6 +93,9 @@ async function processOrder(job) {
             
             await QueueService.completeOrder(job.id);
         } else {
+            // SMM API returned logic error (e.g. invalid target, insufficient balance on provider)
+            // MUST REFUND BALANCE!
+            await UserService.updateBalance(user_id, price);
             throw new Error(res.error || res.msg || 'SMM API gagal memproses order');
         }
     } catch (err) {
