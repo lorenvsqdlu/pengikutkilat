@@ -1,7 +1,8 @@
 const { Scenes, Markup } = require('telegraf');
-const paymentService = require('../services/payment.service');
 const DepositService = require('../services/deposit.service');
-const BankService = require('../services/bank.service');
+const AdminService = require('../services/admin.service');
+const config = require('../config');
+const crypto = require('crypto');
 const logger = require('../utils/logger');
 const { sendOrEdit } = require('../utils/ui');
 
@@ -28,29 +29,17 @@ const depositScene = new Scenes.WizardScene(
   'DEPOSIT_SCENE',
   async (ctx) => {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    const banks = await BankService.getActiveBanks();
-    let msg = '💰 *DEPOSIT SALDO*\n\nSilakan pilih metode deposit Anda:\n\n';
-    msg += '1️⃣ *OTOMATIS (Sistem PG)* - Saldo langsung masuk\n(Minimal Rp 10.000, ada biaya per-transaksi)\n\n';
-    msg += '2️⃣ *MANUAL TRANSFER BANK*\nTransfer ke salah satu rekening aktif kami:\n\n';
     
-    if (banks.length > 0) {
-        banks.forEach(b => {
-            msg += `🏦 *${b.bank_name}*\n\`${b.account_number}\`\nA/N: ${b.account_name}\n\n`;
-        });
-    } else {
-        msg += '_Belum ada rekening aktif._\n\n';
-    }
+    let msg = '💰 *DEPOSIT MANUAL*\n\nPilih salah satu nominal cepat di bawah ini atau pilih "Nominal Lain" untuk memasukkan nominal khusus (Minimal Rp 10.000).';
     
-    msg += '3️⃣ *QRIS MANUAL*\nScan QRIS milik kami (Pilih opsi Pembayaran QRIS untuk melihat QR).\n\n';
-    msg += 'Setelah transfer Manual, pastikan klik tombol "Saya Sudah Transfer".';
-
     await sendOrEdit(ctx, msg, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-          [Markup.button.callback('⚡ Deposit Otomatis (QRIS dll)', 'DEP_AUTO')],
-          [Markup.button.callback('🏦 Saya Sudah Transfer (Bank)', 'DEP_MANUAL')],
-          [Markup.button.callback('📱 Pembayaran QRIS / Sudah Scan', 'DEP_QRIS')],
-          [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
+          [Markup.button.callback('Rp10.000', 'AMT_10000'), Markup.button.callback('Rp20.000', 'AMT_20000')],
+          [Markup.button.callback('Rp30.000', 'AMT_30000'), Markup.button.callback('Rp50.000', 'AMT_50000')],
+          [Markup.button.callback('Rp100.000', 'AMT_100000'), Markup.button.callback('Rp200.000', 'AMT_200000')],
+          [Markup.button.callback('Nominal Lain', 'AMT_CUSTOM')],
+          [Markup.button.callback('🔙 Kembali', 'back_to_menu_main')]
       ])
     });
     return ctx.wizard.next();
@@ -60,37 +49,38 @@ const depositScene = new Scenes.WizardScene(
       const action = ctx.callbackQuery.data;
       if (action === 'CANCEL') return handleCancel(ctx);
       
-      if (action === 'DEP_MANUAL') {
-          await ctx.answerCbQuery().catch(() => {});
-          ctx.scene.enter('MANUAL_DEPOSIT_SCENE');
-          return;
-      }
-      
       if (action === 'back_to_menu_main') {
-          // It's technically caught globally but just in case
+          await ctx.answerCbQuery().catch(() => {});
           const StartController = require('../controllers/start.controller');
           await StartController.handleBackToMain(ctx);
           return ctx.scene.leave();
       }
-
-      if (action === 'DEP_QRIS') {
+      
+      if (action.startsWith('AMT_')) {
           await ctx.answerCbQuery().catch(() => {});
-          ctx.scene.enter('QRIS_PAYMENT_SCENE');
-          return;
+          
+          if (action === 'AMT_CUSTOM') {
+              ctx.wizard.state.mode = 'CUSTOM_AMOUNT';
+              await sendOrEdit(ctx, 'Masukkan nominal transfer yang Anda kirim (contoh: 50000).\nMin: Rp 10.000\n\nKetik /cancel untuk membatalkan:');
+              return ctx.wizard.next();
+          }
+          
+          const amount = parseInt(action.replace('AMT_', ''), 10);
+          ctx.wizard.state.amount = amount;
+          return processInvoice(ctx, amount);
       }
       
-      if (action === 'DEP_AUTO') {
-          await ctx.answerCbQuery().catch(() => {});
-          await sendOrEdit(ctx, 'Masukkan nominal deposit otomatis yang Anda inginkan (Min: Rp 10.000).\nContoh: 50000\n\nKetik /cancel untuk membatalkan.');
-          ctx.wizard.state.mode = 'AUTO';
-          return ctx.wizard.next();
-      }
+      await ctx.answerCbQuery().catch(() => {});
   },
   async (ctx) => {
+    if (ctx.callbackQuery) {
+        await ctx.answerCbQuery().catch(() => {});
+        return;
+    }
     if (ctx.message?.text === '/cancel') return handleCancel(ctx);
     if (!ctx.message || !ctx.message.text) return;
     
-    if (ctx.wizard.state.mode === 'AUTO') {
+    if (ctx.wizard.state.mode === 'CUSTOM_AMOUNT') {
         const amount = parseInt(ctx.message.text.replace(/[^0-9]/g, ''), 10);
         if (isNaN(amount) || amount < 10000) {
           await ctx.reply('❌ Nominal tidak valid. Minimal deposit adalah Rp 10.000. Silakan masukkan nominal yang benar.');
@@ -98,74 +88,90 @@ const depositScene = new Scenes.WizardScene(
         }
 
         ctx.wizard.state.amount = amount;
-        
-        await sendOrEdit(ctx, `Anda akan melakukan deposit otomatis sebesar *${formatRupiah(amount)}*.\nPilih metode pembayaran:`, {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([
-            [Markup.button.callback('✅ Konfirmasi Pembayaran QRIS', 'CONFIRM_DEPOSIT')],
-            [Markup.button.callback('❌ Batal', 'CANCEL')]
-          ])
-        });
-        return ctx.wizard.next();
-    }
-  },
-  async (ctx) => {
-    if (!ctx.callbackQuery) return;
-    const action = ctx.callbackQuery.data;
-    if (action === 'CANCEL') return handleCancel(ctx);
-
-    if (action === 'CONFIRM_DEPOSIT') {
-      await ctx.answerCbQuery().catch(() => {});
-      const loadMsg = await ctx.reply('⏳ Sedang dihubungkan ke Payment Gateway...');
-
-      try {
-        const user = ctx.from;
-        const amount = ctx.wizard.state.amount;
-        
-        const trx = await paymentService.createTransaction(user, amount, 'QRIS');
-
-        await DepositService.createDeposit({
-          user_id: user.id,
-          reference_id: trx.reference,
-          amount: amount, 
-          fee: trx.total_fee || 0,
-          status: 'Pending',
-          payment_method: 'QRIS',
-          pay_url: trx.qr_url || trx.checkout_url
-        });
-
-        await ctx.telegram.deleteMessage(ctx.chat.id, loadMsg.message_id);
-
-        const replyText = `
-✅ *INVOICE PEMBAYARAN*
-━━━━━━━━━━━━━━━━━
-*Ref:* \`${trx.reference}\`
-*Metode:* QRIS
-*Nominal Deposit:* ${formatRupiah(amount)}
-*Biaya (Fee):* ${formatRupiah(trx.total_fee || 0)}
-*Total Pembayaran:* ${formatRupiah(trx.amount)}
-
-Silakan scan QRIS pada tautan di bawah ini atau buka halaman checkout untuk membayar.
-Saldo akan otomatis masuk setelah pembayaran terverifikasi.
-`;
-
-        await ctx.reply(replyText, {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([
-             [Markup.button.url('👉 Bayar di Sini', trx.checkout_url || trx.qr_url)]
-          ])
-        });
-
-      } catch (error) {
-        await ctx.telegram.deleteMessage(ctx.chat.id, loadMsg.message_id);
-        await ctx.reply(`❌ Gagal membuat pembayaran: ${error.message}`);
-      }
-
-      return ctx.scene.leave();
+        return processInvoice(ctx, amount);
     }
   }
 );
 
 depositScene.command('cancel', handleCancel);
+
+async function processInvoice(ctx, amount) {
+    const user = ctx.from;
+    const randomStr = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const refId = 'INV' + Date.now() + randomStr;
+    
+    // Save to DB
+    await DepositService.createDeposit({
+        user_id: user.id,
+        reference_id: refId,
+        amount: amount, 
+        fee: 0,
+        status: 'Pending',
+        payment_method: 'Manual Payment',
+        pay_url: ''
+    });
+    
+    const dana_number = await AdminService.getSetting('deposit_dana_number') || 'TIDAK TERSEDIA';
+    const gopay_number = await AdminService.getSetting('deposit_gopay_number') || 'TIDAK TERSEDIA';
+    const ovo_number = await AdminService.getSetting('deposit_ovo_number') || 'TIDAK TERSEDIA';
+    const bca_account = await AdminService.getSetting('deposit_bca_account') || 'TIDAK TERSEDIA';
+    const qris_file_id = await AdminService.getSetting('deposit_qris_file_id') || null;
+
+    const captionText = `💳 *PILIHAN PEMBAYARAN MANUAL*
+
+Silakan transfer sesuai nominal ke salah satu rekening berikut:
+
+💰 Nominal: *${formatRupiah(amount)}*
+📱 QRIS: Scan QR di atas
+
+🔵 DANA
+${dana_number}
+
+🟢 GOPAY
+${gopay_number}
+
+🟣 OVO
+${ovo_number}
+
+🏦 BCA
+${bca_account}
+
+🧾 Invoice:
+\`${refId}\`
+
+👉 *Instruksi:*
+1. Pilih salah satu metode pembayaran.
+2. Transfer sesuai nominal.
+3. Kirim foto/screenshot bukti transfer ke chat ini sekarang.
+4. Admin akan melakukan verifikasi secara manual.
+
+⏳ Status:
+*MENUNGGU BUKTI PEMBAYARAN*`;
+
+    // Exit old message
+    try {
+      await ctx.deleteMessage();
+    } catch(e) {}
+    
+    if (qris_file_id) {
+        await ctx.replyWithPhoto(qris_file_id, {
+            caption: captionText,
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [[Markup.button.callback('❌ Batal', 'CANCEL_DEPOSIT_INV')]]
+            }
+        });
+    } else {
+        await ctx.reply(captionText, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [[Markup.button.callback('❌ Batal', 'CANCEL_DEPOSIT_INV')]]
+            }
+        });
+    }
+    
+    // Switch to manual scene to wait for photo
+    return ctx.scene.enter('MANUAL_DEPOSIT_PROOF_SCENE', { reference_id: refId, amount });
+}
 
 module.exports = depositScene;

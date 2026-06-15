@@ -134,6 +134,9 @@ const orderScene = new Scenes.WizardScene(
       const platformName = action.replace('PLATFORM_', '');
       ctx.wizard.state.order.platform = platformName;
       
+      const logger = require('../utils/logger');
+      logger.info(`[PLATFORM CLICK] User ${ctx.from.id} chose platform ${platformName}`);
+      
       const groupedServices = smmService.getGroupedServices();
       const platformData = groupedServices.find(g => g.platform === platformName);
       
@@ -152,14 +155,15 @@ const orderScene = new Scenes.WizardScene(
       
       let hasCatLainnya = false;
       categories.forEach(cat => {
-          if (cat === 'Lainnya') { 
+          const safeCat = cat || 'Lainnya';
+          if (safeCat === 'Lainnya') { 
               hasCatLainnya = true; 
               return; 
           }
           const callbackData = `CAT_${catIndex++}`;
           if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
-          ctx.wizard.state.catMap[callbackData] = cat;
-          buttons.push([Markup.button.callback(cat.substring(0, 40), callbackData)]);
+          ctx.wizard.state.catMap[callbackData] = safeCat;
+          buttons.push([Markup.button.callback(safeCat.substring(0, 40), callbackData)]);
       });
       
       if (hasCatLainnya) {
@@ -172,11 +176,19 @@ const orderScene = new Scenes.WizardScene(
       buttons.push([Markup.button.callback('🔙 Kembali', 'BACK_TO_PLATS')]);
       buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
 
-      await sendOrEdit(ctx, `Pilih Kategori ${platformName}:`, {
-        ...Markup.inlineKeyboard(buttons)
-      });
-      return ctx.wizard.next();
+      try {
+          await sendOrEdit(ctx, `Pilih Kategori ${platformName}:`, {
+            ...Markup.inlineKeyboard(buttons)
+          });
+          return ctx.wizard.next();
+      } catch (err) {
+          logger.error(`[CALLBACK ERROR] Step 2 failed to edit menu for ${platformName}:`, err.message);
+          return ctx.scene.leave();
+      }
     }
+    
+    // Unhandled callbacks (e.g. from previous steps) must be answered to avoid frozen button
+    await ctx.answerCbQuery().catch(() => {});
   },
 
   // Step 3: Pilih Layanan Spesifik
@@ -201,10 +213,18 @@ const orderScene = new Scenes.WizardScene(
 
         ctx.wizard.state.order.category = selectedCategory;
         
+        const logger = require('../utils/logger');
+        logger.info(`[CATEGORY CLICK] User ${ctx.from.id} chose category ${selectedCategory}`);
+        
         await sendOrEdit(ctx, '⏳ Mengambil daftar layanan...');
         
         try {
             const groupedServices = smmService.getGroupedServices();
+            if (!groupedServices || groupedServices.length === 0) {
+                 logger.warn(`[CACHE MISS] No cached services found during order flow.`);
+                 throw new Error('Cache layanan kosong. Silakan coba lagi.');
+            }
+            
             const platformData = groupedServices.find(g => g.platform === ctx.wizard.state.order.platform);
             
             if (!platformData) throw new Error('Data platform tidak ditemukan');
@@ -222,9 +242,10 @@ const orderScene = new Scenes.WizardScene(
             const ProfitEngine = require('../services/profit.engine');
             
             const buttons = await Promise.all(filteredServices.map(async s => {
-                const basePrice = parseFloat(s.price || s.rate);
+                const basePrice = parseFloat(s.price || s.rate || 0);
                 const p = await ProfitEngine.calculatePrice(basePrice, 1000, s.category);
-                return [Markup.button.callback(`${s.name.substring(0, 40)} | ${formatRupiah(p.sell_price)}/K`, `SERVICE_${s.service}`)];
+                const safeName = s.name || `Service ${s.service}`;
+                return [Markup.button.callback(`${safeName.substring(0, 40)} | ${formatRupiah(p.sell_price)}/K`, `SERVICE_${s.service}`)];
             }));
             
             buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
@@ -235,10 +256,15 @@ const orderScene = new Scenes.WizardScene(
             return ctx.wizard.next();
 
         } catch (error) {
-            await sendOrEdit(ctx, 'Terjadi kesalahan saat mengambil layanan SMM.');
+            const logger = require('../utils/logger');
+            logger.error(`[CALLBACK ERROR] Step 3 category failed:`, error.message);
+            await sendOrEdit(ctx, 'Terjadi kesalahan saat mengambil layanan SMM. Silakan coba menu lagi (Cache kosong/Timeout).');
             return ctx.scene.leave();
         }
     }
+    
+    // Fallback for unmatched action
+    await ctx.answerCbQuery().catch(() => {});
   },
 
   // Step 4: Masukkan Target (Username / Link)
@@ -255,25 +281,40 @@ const orderScene = new Scenes.WizardScene(
       const selectedService = ctx.wizard.state.availableServices.find(s => s.service == serviceId);
       
       if (!selectedService) {
-        await sendOrEdit(ctx, 'Layanan tidak valid.');
+        await sendOrEdit(ctx, 'Layanan tidak valid atau sesi order expired. Silakan mulai ulang.');
         return ctx.scene.leave();
       }
+      
+      const logger = require('../utils/logger');
+      logger.info(`[SERVICE CLICK] User ${ctx.from.id} chose service ${serviceId}`);
       
       ctx.wizard.state.order.selectedService = selectedService;
       
       const typeDesc = selectedService.type !== 'default' ? `\n(Tipe: ${selectedService.type})` : '';
       
-      let promptText = `Layanan terpilih: *${selectedService.name}*${typeDesc}\nMin: ${selectedService.min} | Max: ${selectedService.max}\n\nMasukkan target (Link/Username):`;
+      let promptText = `Layanan terpilih: *${selectedService.name || serviceId}*${typeDesc}\nMin: ${selectedService.min} | Max: ${selectedService.max}\n\nMasukkan target (Link/Username):`;
       
-      await sendOrEdit(ctx, promptText, {
-        parse_mode: 'Markdown'
-      });
-      return ctx.wizard.next();
+      try {
+        await sendOrEdit(ctx, promptText, {
+          parse_mode: 'Markdown'
+        });
+        return ctx.wizard.next();
+      } catch (err) {
+        logger.error(`[CALLBACK ERROR] Step 4 prompt generation failed:`, err.message);
+        return ctx.scene.leave();
+      }
     }
+    
+    // Fallback
+    await ctx.answerCbQuery().catch(() => {});
   },
 
   // Step 5: Masukkan Target & Data Khusus
   async (ctx) => {
+    if (ctx.callbackQuery) {
+        await ctx.answerCbQuery().catch(() => {});
+        return;
+    }
     if (ctx.message && ctx.message.text === '/cancel') return handleCancel(ctx);
     if (!ctx.message || !ctx.message.text) return;
 
@@ -363,6 +404,10 @@ const orderScene = new Scenes.WizardScene(
 
   // Step 6: Masukkan Jumlah
   async (ctx) => {
+    if (ctx.callbackQuery) {
+        await ctx.answerCbQuery().catch(() => {});
+        return;
+    }
     if (ctx.message && ctx.message.text === '/cancel') return handleCancel(ctx);
     if (!ctx.message || !ctx.message.text) return;
 
@@ -413,8 +458,9 @@ const orderScene = new Scenes.WizardScene(
             return ctx.scene.leave();
           }
 
-          if (parseFloat(user.balance) < orderState.totalPrice) {
-            await ctx.reply(`❌ Saldo tidak mencukupi untuk melakukan order ini.\nSaldo saat ini: ${formatRupiah(user.balance)}`);
+          const currentBalance = parseFloat(user.balance || 0);
+          if (currentBalance < orderState.totalPrice) {
+            await ctx.reply(`❌ Saldo tidak mencukupi untuk melakukan order ini.\nSaldo saat ini: ${formatRupiah(currentBalance)}`);
             return ctx.scene.leave();
           }
 
@@ -422,7 +468,7 @@ const orderScene = new Scenes.WizardScene(
           const orderId = await OrderService.createOrder({
             user_id: user.telegram_id,
             service_id: orderState.selectedService.service,
-            service_name: orderState.selectedService.name,
+            service_name: orderState.selectedService.name || `Service ${orderState.selectedService.service}`,
             api_order_id: null,
             target: orderState.target,
             quantity: orderState.quantity,
@@ -451,7 +497,7 @@ const orderScene = new Scenes.WizardScene(
                  order_id: orderId,
                  user_id: userId,
                  price: orderState.totalPrice,
-                 base_price: parseFloat(orderState.selectedService.rate || orderState.selectedService.price),
+                 base_price: parseFloat(orderState.selectedService.rate || orderState.selectedService.price || 0),
                  quantity: orderState.quantity,
                  category: orderState.category,
                  smm_payload: smmPayload
@@ -460,6 +506,7 @@ const orderScene = new Scenes.WizardScene(
           const processingMessage = await ctx.reply(`⏳ *Pesanan Sedang Diproses*\n\nID Order: \`${orderId}\`\nPesanan Anda telah masuk dalam antrean sistem untuk diproses server penyedia. \nSaldo Anda dikurangi setelah order sukses pada sistem provider.\nSistem akan memberi notifikasi otomatis.`, { parse_mode: 'Markdown' });
           return ctx.scene.leave();
       } catch (error) {
+          const logger = require('../utils/logger');
           logger.error('Error saat submit order queue:', error);
           await ctx.reply(`❌ Terjadi kesalahan sistem saat memproses antrean order: ${error.message}.`);
           return ctx.scene.leave();
@@ -467,6 +514,9 @@ const orderScene = new Scenes.WizardScene(
           orderLocks.delete(userId);
       }
     }
+    
+    // Fallback
+    await ctx.answerCbQuery().catch(() => {});
   }
 );
 

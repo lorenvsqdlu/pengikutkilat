@@ -10,11 +10,13 @@ const orderScene = require('../scenes/order.scene');
 const depositScene = require('../scenes/deposit.scene');
 const qrisPaymentScene = require('../scenes/qris-payment.scene');
 const adminQrisScene = require('../scenes/admin-qris.scene');
-const { manualDepositScene, rejectDepositScene } = require('../scenes/deposit-manual.scene');
+const { manualDepositScene, manualDepositProofScene, rejectDepositScene } = require('../scenes/deposit-manual.scene');
 const { adminBankScene, adminToggleBankScene } = require('../scenes/admin-bank.scene');
+const { adminDanaScene, adminDepQrisScene } = require('../scenes/admin-dana.scene');
 const { adminBroadcastScene, adminMarkupScene, adminBalanceScene, adminBanScene } = require('../scenes/admin.scenes');
 const { adminSetWelcomeScene, adminForceSubScene } = require('../scenes/admin.settings.scene');
 const searchServicesScene = require('../scenes/search-services.scene');
+const adminLoginScene = require('../scenes/admin-login.scene');
 const adminMiddleware = require('../middlewares/admin.middleware');
 const authMiddleware = require('../middlewares/auth.middleware');
 const AdminController = require('../controllers/admin.controller');
@@ -36,16 +38,20 @@ const stage = new Scenes.Stage([
   qrisPaymentScene,
   adminQrisScene,
   manualDepositScene,
+  manualDepositProofScene,
   rejectDepositScene,
   adminBankScene,
   adminToggleBankScene,
+  adminDanaScene,
+  adminDepQrisScene,
   adminBroadcastScene, 
   adminMarkupScene, 
   adminBalanceScene, 
   adminBanScene,
   adminSetWelcomeScene,
   adminForceSubScene,
-  searchServicesScene
+  searchServicesScene,
+  adminLoginScene
 ]);
 bot.use(stage.middleware());
 
@@ -121,6 +127,16 @@ bot.action(/^refresh_order_(\d+)$/, UserController.handleRefreshOrder);
 
 // Admin Routes Hook
 bot.command('admin', adminMiddleware, AdminController.handleAdminMenu);
+bot.command('logoutadmin', (ctx) => {
+    const adminIds = config.ADMIN_IDS.split(',').map(id => id.trim());
+    if (!ctx.from || !adminIds.includes(ctx.from.id.toString())) return;
+
+    if (ctx.session) {
+        ctx.session.adminAuthenticated = false;
+        ctx.session.adminLoginExpires = null;
+    }
+    return ctx.reply('✅ Sesi Administrator berhasil diakhiri.');
+});
 bot.command('profit', adminMiddleware, AdminController.handleProfit);
 bot.command('margin', adminMiddleware, AdminController.handleMargin);
 bot.command('approve', adminMiddleware, AdminController.handleApprove);

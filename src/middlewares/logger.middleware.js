@@ -7,7 +7,13 @@ module.exports = async (ctx, next) => {
   const start = new Date();
   
   if (ctx.updateType === 'message') {
-      logger.info(`[MESSAGE] User ${ctx.from?.id} : ${ctx.message?.text || '<non-text message>'}`);
+      let isSecret = false;
+      if (ctx.session?.__scenes?.current === 'ADMIN_LOGIN_SCENE') {
+          isSecret = true;
+      }
+      
+      const text = isSecret ? '<hidden_pin>' : (ctx.message?.text || '<non-text message>');
+      logger.info(`[MESSAGE] User ${ctx.from?.id} : ${text}`);
   } else if (ctx.updateType === 'callback_query') {
       logger.info(`[CALLBACK] User ${ctx.from?.id} : ${ctx.callbackQuery?.data}`);
   } else {

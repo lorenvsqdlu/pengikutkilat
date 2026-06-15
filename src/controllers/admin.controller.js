@@ -96,22 +96,35 @@ class AdminController {
       const refId = parts[1];
       if (!refId) return ctx.reply('Format: /approve <ref_id>');
       
-      const deposit = await DepositService.getDepositByRef(refId);
-      if (!deposit || deposit.status !== 'Pending') {
-          return ctx.reply('❌ Deposit tidak ditemukan atau sudah diproses.');
-      }
-      const updated = await DepositService.updateDepositStatus(refId, 'Approved', ctx.from.id);
-      if (!updated) {
-          return ctx.reply('❌ Deposit sudah diproses oleh admin lain.');
-      }
-      await UserService.updateBalance(deposit.user_id, deposit.amount);
-      await AdminService.logAction(ctx.from.id, 'APPROVE_DEPOSIT', { reference_id: refId, amount: deposit.amount });
-      
-      await ctx.reply(`✅ *DEPOSIT APPROVED*\n\nRef: \`${refId}\`\nUser: ${deposit.user_id}\nNominal: *${formatRupiah(deposit.amount)}*`, {parse_mode: 'Markdown'});
-      
+      const client = await db.pool.connect();
       try {
-          await ctx.telegram.sendMessage(deposit.user_id, `✅ *DEPOSIT BERHASIL*\n\nRef: \`${refId}\`\nNominal: *${formatRupiah(deposit.amount)}*\n\nSaldo otomatis ditambahkan ke akun Anda.`, {parse_mode: 'Markdown'});
-      } catch(e){}
+          await client.query('BEGIN');
+          const depositRes = await client.query('SELECT * FROM deposits WHERE reference_id = $1 FOR UPDATE', [refId]);
+          const deposit = depositRes.rows[0];
+          
+          if (!deposit || (deposit.status !== 'Pending' && deposit.status !== 'WAITING_APPROVAL')) {
+              await client.query('ROLLBACK');
+              client.release();
+              return ctx.reply('❌ Deposit tidak ditemukan atau sudah diproses.');
+          }
+          
+          await client.query(`UPDATE deposits SET status = 'Approved', approved_at = CURRENT_TIMESTAMP, admin_id = $1 WHERE reference_id = $2`, [ctx.from.id, refId]);
+          await client.query(`UPDATE users SET balance = balance + $1 WHERE telegram_id = $2`, [deposit.amount, deposit.user_id]);
+          await client.query('COMMIT');
+          client.release();
+          
+          await AdminService.logAction(ctx.from.id, 'APPROVE_DEPOSIT', { reference_id: refId, amount: deposit.amount });
+          
+          await ctx.reply(`✅ *DEPOSIT APPROVED*\n\nRef: \`${refId}\`\nUser: ${deposit.user_id}\nNominal: *${formatRupiah(deposit.amount)}*`, {parse_mode: 'Markdown'});
+          
+          try {
+              await ctx.telegram.sendMessage(deposit.user_id, `✅ *Deposit Berhasil*\n\nInvoice: \`${refId}\`\nNominal: *${formatRupiah(deposit.amount)}*\n\nSaldo otomatis ditambahkan ke akun Anda.`, {parse_mode: 'Markdown'});
+          } catch(e){}
+      } catch (err) {
+          await client.query('ROLLBACK');
+          client.release();
+          return ctx.reply('❌ Gagal memproses: ' + err.message);
+      }
   }
   
   static async handleReject(ctx) {
@@ -125,7 +138,7 @@ class AdminController {
     const menuText = `*MENU ADMIN*\nSilakan pilih menu di bawah ini:`;
     const buttons = [
       [
-        Markup.button.callback('⏳ Deposit Pending', 'ADMIN_DEPOSIT_PENDING'),
+        Markup.button.callback('💳 Kelola Deposit', 'ADMIN_DEPOSIT_MENU'),
         Markup.button.callback('📊 Statistik Web', 'ADMIN_STATS')
       ],
       [Markup.button.callback('👥 Kelola User', 'ADMIN_USER_MENU')],
@@ -174,22 +187,106 @@ class AdminController {
          }).catch(() => {});
      }
 
+     if (action === 'ADMIN_DEPOSIT_MENU') {
+         const pendingRows = await db.query('SELECT COUNT(*) as cnt FROM deposits WHERE status IN ("Pending", "WAITING_APPROVAL")');
+         const approvedRows = await db.query('SELECT COUNT(*) as cnt FROM deposits WHERE status = "Approved"');
+         const rejectedRows = await db.query('SELECT COUNT(*) as cnt FROM deposits WHERE status = "Rejected"');
+         
+         const pendingCount = pendingRows[0][0].cnt;
+         const approvedCount = approvedRows[0][0].cnt;
+         const rejectedCount = rejectedRows[0][0].cnt;
+         
+         const text = `💳 *KELOLA DEPOSIT*\n\n📥 Deposit Pending: ${pendingCount}\n✅ Deposit Disetujui: ${approvedCount}\n❌ Deposit Ditolak: ${rejectedCount}`;
+         
+         return ctx.editMessageText(text, {
+             parse_mode: 'Markdown',
+             ...Markup.inlineKeyboard([
+                 [Markup.button.callback('📥 Deposit Pending', 'ADMIN_DEPOSIT_PENDING')],
+                 [Markup.button.callback('📜 Riwayat Deposit', 'ADMIN_DEPOSIT_HISTORY')],
+                 [Markup.button.callback('⚙️ Pengaturan Deposit', 'ADMIN_DEPOSIT_SETTINGS')],
+                 [Markup.button.callback('🔙 Kembali', 'ADMIN_MENU')]
+             ])
+         }).catch(() => {});
+     }
+     
+     if (action === 'ADMIN_DEPOSIT_SETTINGS') {
+         return ctx.editMessageText('⚙️ *PENGATURAN DEPOSIT*\n\nSilakan pilih yang ingin diubah:', {
+             parse_mode: 'Markdown',
+             ...Markup.inlineKeyboard([
+                 [Markup.button.callback('🖼 Ubah QRIS', 'ADMIN_DEP_SET_QRIS')],
+                 [Markup.button.callback('🔵 Ubah Nomor DANA', 'ADMIN_DEP_SET_DANA')],
+                 [Markup.button.callback('🏦 Ubah Rekening Bank', 'ADMIN_BANK')],
+                 [Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]
+             ])
+         }).catch(() => {});
+     }
+     
+     if (action === 'ADMIN_DEP_SET_DANA') {
+         return ctx.scene.enter('ADMIN_DEP_DANA_SCENE');
+     }
+     
+     if (action === 'ADMIN_DEP_SET_QRIS') {
+         return ctx.scene.enter('ADMIN_DEP_QRIS_SCENE');
+     }
+     
+     if (action === 'ADMIN_DEPOSIT_HISTORY') {
+         const hist = await db.query('SELECT * FROM deposits WHERE status IN ("Approved", "Rejected") ORDER BY update_at DESC, created_at DESC LIMIT 5');
+         const deposits = hist[0];
+         if (deposits.length === 0) {
+             return ctx.editMessageText('Belum ada riwayat deposit.', {
+                 ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]])
+             });
+         }
+         let txt = `📜 *5 RIWAYAT DEPOSIT TERAKHIR*\n\n`;
+         for (const dep of deposits) {
+             txt += `Ref: \`${dep.reference_id}\`\nUser: ${dep.user_id}\nNominal: Rp ${dep.amount}\nStatus: *${dep.status}*\n\n`;
+         }
+         return ctx.editMessageText(txt, {
+             parse_mode: 'Markdown',
+             ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]])
+         });
+     }
+
      if (action === 'ADMIN_DEPOSIT_PENDING') {
-         const pending = await db.query('SELECT * FROM deposits WHERE status = ? ORDER BY created_at ASC LIMIT 10', ['Pending']);
+         const pending = await db.query('SELECT * FROM deposits WHERE status IN ("Pending", "WAITING_APPROVAL") ORDER BY created_at ASC LIMIT 1');
          const deposits = pending[0];
          if (deposits.length === 0) {
              return ctx.editMessageText('✅ Tidak ada deposit pending saat ini.', {
-                 ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_MENU')]])
+                 ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]])
              });
          }
-         let txt = `⏳ *10 DEPOSIT PENDING TERATAS*\n\n`;
-         for (const dep of deposits) {
-             txt += `Ref: \`${dep.reference_id}\`\nUser: ${dep.user_id}\nNominal: Rp ${dep.amount}\nMetode: ${dep.payment_method}\nWaktu: ${dep.created_at}\n\n`;
+         
+         const dep = deposits[0];
+         const dateFormatted = new Date(dep.created_at).toLocaleString('id-ID');
+         
+         let txt = `🧾 *Invoice:*\n\`${dep.reference_id}\`\n\n👤 *User:*\n${dep.user_id}\n\n💰 *Nominal:*\n${formatRupiah(dep.amount)}\n\n📅 *Tanggal:*\n${dateFormatted}\n\n📌 *Status:*\n${dep.status}`;
+         
+         try {
+             await ctx.deleteMessage();
+         } catch(e) {}
+         
+         const inlineKbd = [
+             [Markup.button.callback('✅ Setujui', `DEP_APPROVE_${dep.reference_id}`), Markup.button.callback('❌ Tolak', `DEP_REJECT_${dep.reference_id}`)],
+             [Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]
+         ];
+         
+         if (dep.proof_image && !dep.proof_image.startsWith('/upload')) {
+             try {
+                return await ctx.replyWithPhoto(dep.proof_image, {
+                    caption: txt,
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: inlineKbd
+                    }
+                });
+             } catch(e) {}
          }
-         txt += `_Gunakan /approve <ref_id> atau /reject <ref_id>_`;
-         return ctx.editMessageText(txt, {
-             parse_mode: 'Markdown',
-             ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_MENU')]])
+         
+         return await ctx.reply(txt, {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                  inline_keyboard: inlineKbd
+              }
          });
      }
      
@@ -298,28 +395,51 @@ class AdminController {
 
      if (action.startsWith('DEP_APPROVE_')) {
          const refId = action.replace('DEP_APPROVE_', '');
-         const deposit = await DepositService.getDepositByRef(refId);
-         if (!deposit || deposit.status !== 'Pending') {
-             return ctx.reply('❌ Deposit tidak ditemukan atau sudah diproses.');
-         }
-         const updated = await DepositService.updateDepositStatus(refId, 'Approved', ctx.from.id);
-         if (!updated) {
-             return ctx.reply('❌ Deposit sudah diproses oleh admin lain.');
-         }
-         await UserService.updateBalance(deposit.user_id, deposit.amount);
-         await AdminService.logAction(ctx.from.id, 'APPROVE_DEPOSIT', { reference_id: refId, amount: deposit.amount });
          
-         await ctx.editMessageCaption(`✅ *DEPOSIT APPROVED*\n\nRef: \`${refId}\`\nUser: ${deposit.user_id}\nNominal: *${formatRupiah(deposit.amount)}*\n\n_Diproses oleh @${ctx.from.username || ctx.from.id}_`, {parse_mode: 'Markdown'});
-         
+         const client = await db.pool.connect();
          try {
-             await ctx.telegram.sendMessage(deposit.user_id, `✅ *DEPOSIT BERHASIL*\n\nNominal: *${formatRupiah(deposit.amount)}*\n\nSaldo otomatis ditambahkan ke akun Anda.`, {parse_mode: 'Markdown'});
-         } catch(e){}
+             await client.query('BEGIN');
+             
+             // Use raw client to ensure transaction lock
+             const depositRes = await client.query('SELECT * FROM deposits WHERE reference_id = $1 FOR UPDATE', [refId]);
+             const deposit = depositRes.rows[0];
+             
+             if (!deposit || (deposit.status !== 'Pending' && deposit.status !== 'WAITING_APPROVAL')) {
+                 await client.query('ROLLBACK');
+                 client.release();
+                 return ctx.reply('❌ Deposit tidak ditemukan atau sudah diproses.');
+             }
+             
+             await client.query(`UPDATE deposits SET status = 'Approved', approved_at = CURRENT_TIMESTAMP, admin_id = $1 WHERE reference_id = $2`, [ctx.from.id, refId]);
+             await client.query(`UPDATE users SET balance = balance + $1 WHERE telegram_id = $2`, [deposit.amount, deposit.user_id]);
+             
+             await client.query('COMMIT');
+             client.release();
+             
+             // Logging outside transaction is fine
+             await AdminService.logAction(ctx.from.id, 'APPROVE_DEPOSIT', { reference_id: refId, amount: deposit.amount });
+             
+             try {
+                await ctx.editMessageCaption(`✅ *DEPOSIT APPROVED*\n\nRef: \`${refId}\`\nUser: ${deposit.user_id}\nNominal: *${formatRupiah(deposit.amount)}*\n\n_Diproses oleh @${ctx.from.username || ctx.from.id}_`, {parse_mode: 'Markdown'});
+             } catch(e) {
+                await ctx.editMessageText(`✅ *DEPOSIT APPROVED*\n\nRef: \`${refId}\`\nUser: ${deposit.user_id}\nNominal: *${formatRupiah(deposit.amount)}*\n\n_Diproses oleh @${ctx.from.username || ctx.from.id}_`, {parse_mode: 'Markdown'});
+             }
+             
+             try {
+                 await ctx.telegram.sendMessage(deposit.user_id, `✅ *Deposit Berhasil*\n\nInvoice: \`${refId}\`\nNominal: *${formatRupiah(deposit.amount)}*\n\nSaldo telah ditambahkan ke akun Anda.`, {parse_mode: 'Markdown'});
+             } catch(e){}
+
+         } catch (err) {
+             await client.query('ROLLBACK');
+             client.release();
+             return ctx.reply('❌ Terjadi kesalahan saat memproses deposit (Transaksi gagal).');
+         }
      }
      
      if (action.startsWith('DEP_REJECT_')) {
          const refId = action.replace('DEP_REJECT_', '');
          const deposit = await DepositService.getDepositByRef(refId);
-         if (!deposit || deposit.status !== 'Pending') {
+         if (!deposit || (deposit.status !== 'Pending' && deposit.status !== 'WAITING_APPROVAL')) {
              return ctx.reply('❌ Deposit tidak ditemukan atau sudah diproses.');
          }
          return ctx.scene.enter('REJECT_DEPOSIT_SCENE', { reference_id: refId });

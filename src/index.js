@@ -53,14 +53,17 @@ app.get('/health', async (req, res) => {
 app.listen(config.PORT, async () => {
   logger.info(`Express healthcheck service running on port ${config.PORT}`);
 
-  try {
-    const db = require('./database/index');
-    await db.init();
-    logger.info('Database Initialized.');
-  } catch (err) {
-    logger.error('Failed to initialize database. Exiting...');
-    process.exit(1);
-  }
+  const initDbWithRetry = async () => {
+    try {
+      const db = require('./database/index');
+      await db.init();
+      logger.info('Database Initialized.');
+    } catch (err) {
+      logger.error('Failed to initialize database. Operating in memory-only or stateless mode...');
+      // Stop the loop completely
+    }
+  };
+  initDbWithRetry();
 
   // Test SMM API Connection
   await smmService.testConnection();

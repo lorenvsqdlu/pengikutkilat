@@ -9,10 +9,13 @@ const searchServicesScene = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (ctx.callbackQuery && ctx.callbackQuery.data === 'cancel_search') {
+    if (ctx.callbackQuery) {
         await ctx.answerCbQuery().catch(()=>{});
-        await ctx.editMessageText('Batal.');
-        return ctx.scene.leave();
+        if (ctx.callbackQuery.data === 'cancel_search') {
+            await ctx.editMessageText('Batal.');
+            return ctx.scene.leave();
+        }
+        return;
     }
     if (ctx.message?.text === '/cancel') {
         await ctx.reply('Pencarian dibatalkan.');

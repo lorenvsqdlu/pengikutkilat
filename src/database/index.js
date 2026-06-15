@@ -14,7 +14,7 @@ async function checkConnection() {
   } catch (err) {
     logger.error('[DATABASE RECONNECT] Reconnecting... Error: ' + err.message);
     isConnected = false;
-    setTimeout(checkConnection, 5000);
+    throw err;
   }
 }
 
