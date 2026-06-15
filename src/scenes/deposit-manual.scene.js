@@ -35,12 +35,30 @@ const manualDepositScene = new Scenes.WizardScene(
   'MANUAL_DEPOSIT_SCENE',
   async (ctx) => {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await sendOrEdit(ctx, '💰 *DEPOSIT MANUAL*\n\nMasukkan nominal transfer yang Anda kirim (contoh: 50000):', { parse_mode: 'Markdown' });
+    await sendOrEdit(ctx, '💰 *DEPOSIT MANUAL*\n\nMasukkan nominal transfer yang Anda kirim (contoh: 50000).\nMin: Rp 10.000\n\nKetik /cancel untuk membatalkan:', { 
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+          [Markup.button.callback('❌ Batal', 'CANCEL')]
+      ])
+    });
     return ctx.wizard.next();
   },
   async (ctx) => {
+    if (ctx.callbackQuery && ctx.callbackQuery.data === 'CANCEL') {
+        await ctx.answerCbQuery().catch(() => {});
+        await sendOrEdit(ctx, '❌ Batal deposit.', {
+            ...Markup.inlineKeyboard([
+                [Markup.button.callback('🏠 Home', 'back_to_menu_main')]
+            ])
+        });
+        return ctx.scene.leave();
+    }
     if (ctx.message?.text === '/cancel') {
-        await ctx.reply('❌ Batal.');
+        await ctx.reply('❌ Batal.', {
+             ...Markup.inlineKeyboard([
+                  [Markup.button.callback('🏠 Home', 'back_to_menu_main')]
+             ]
+        )});
         return ctx.scene.leave();
     }
     const amount = parseInt(ctx.message?.text?.replace(/[^0-9]/g, ''), 10);
@@ -50,12 +68,30 @@ const manualDepositScene = new Scenes.WizardScene(
     }
     ctx.wizard.state.amount = amount;
     
-    await ctx.reply(`Anda akan deposit sebesar *${formatRupiah(amount)}*.\n\n📸 Silakan kirimkan (Upload) *Bukti Transfer* Anda sekarang:`, { parse_mode: 'Markdown' });
+    await ctx.reply(`Anda akan deposit sebesar *${formatRupiah(amount)}*.\n\n📸 Silakan kirimkan (Upload) *Bukti Transfer* Anda sekarang:\nUpload sebagai gambar.`, { 
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+            [Markup.button.callback('❌ Batal', 'CANCEL')]
+        ])
+    });
     return ctx.wizard.next();
   },
   async (ctx) => {
+    if (ctx.callbackQuery && ctx.callbackQuery.data === 'CANCEL') {
+        await ctx.answerCbQuery().catch(() => {});
+        await sendOrEdit(ctx, '❌ Batal deposit.', {
+            ...Markup.inlineKeyboard([
+                [Markup.button.callback('🏠 Home', 'back_to_menu_main')]
+            ])
+        });
+        return ctx.scene.leave();
+    }
     if (ctx.message?.text === '/cancel') {
-        await ctx.reply('❌ Batal.');
+        await ctx.reply('❌ Batal.', {
+            ...Markup.inlineKeyboard([
+                [Markup.button.callback('🏠 Home', 'back_to_menu_main')]
+            ])
+        });
         return ctx.scene.leave();
     }
     
@@ -64,7 +100,7 @@ const manualDepositScene = new Scenes.WizardScene(
       return;
     }
     
-    await ctx.reply('⏳ Sedang memproses deposit Anda...');
+    const processingMsg = await ctx.reply('⏳ Sedang memproses deposit Anda...\nMohon tunggu.');
     
     const photo = ctx.message.photo[ctx.message.photo.length - 1];
     const fileId = photo.file_id;
@@ -84,7 +120,7 @@ const manualDepositScene = new Scenes.WizardScene(
             status: 'Pending',
             payment_method: ctx.scene.state.method || 'Manual Transfer',
             pay_url: '',
-            proof_image: localPath
+            proof_image: `/uploads/deposits/${filename}`
         });
         
         // Notify Admins
@@ -103,11 +139,17 @@ const manualDepositScene = new Scenes.WizardScene(
             } catch(e) {}
         }
         
-        await ctx.reply(`✅ *Tiket Deposit Berhasil Dibuat!*\n\nRef: \`${reference_id}\`\nNominal: *${formatRupiah(ctx.wizard.state.amount)}*\n\nMohon tunggu admin memverifikasi bukti transfer Anda. Saldo akan masuk setelah disetujui.`, {parse_mode: 'Markdown'});
+        await ctx.telegram.editMessageText(ctx.chat.id, processingMsg.message_id, undefined, 
+          `✅ *Tiket Deposit Berhasil Dibuat!*\n\nRef: \`${reference_id}\`\nNominal: *${formatRupiah(ctx.wizard.state.amount)}*\n\nMohon tunggu admin memverifikasi bukti. Saldo akan masuk setelah disetujui.`, {
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard([
+                [Markup.button.callback('🏠 Home', 'back_to_menu_main')]
+            ])
+        });
         
     } catch(err) {
         logger.error('Manual Deposit Error', err);
-        await ctx.reply('❌ Terjadi kesalahan saat memproses deposit manual. Hubungi admin.');
+        await ctx.telegram.editMessageText(ctx.chat.id, processingMsg.message_id, undefined, '❌ Terjadi kesalahan saat memproses deposit manual. Hubungi admin.');
     }
     return ctx.scene.leave();
   }

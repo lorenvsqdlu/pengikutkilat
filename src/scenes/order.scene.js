@@ -19,7 +19,12 @@ const formatRupiah = (angka) => {
 const orderLocks = new Set();
 
 const handleCancel = async (ctx) => {
-  await ctx.reply('❌ Order dibatalkan.', Markup.removeKeyboard());
+  if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+  await sendOrEdit(ctx, '❌ Order dibatalkan.', {
+      ...Markup.inlineKeyboard([
+          [Markup.button.callback('🏠 Home', 'back_to_menu_main')]
+      ])
+  });
   return ctx.scene.leave();
 };
 

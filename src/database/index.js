@@ -104,6 +104,9 @@ async function initDatabase() {
         status VARCHAR(50) DEFAULT 'Pending',
         payment_method VARCHAR(50),
         pay_url TEXT,
+        proof_image TEXT,
+        admin_id BIGINT NULL,
+        approved_at DATETIME NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         paid_at DATETIME NULL
       );
