@@ -113,17 +113,17 @@ class SMMService {
           }
           
           let platform = 'Lainnya';
-          const lowerCat = cat.toLowerCase();
-          if (lowerCat.includes('instagram')) platform = 'Instagram';
-          else if (lowerCat.includes('tiktok')) platform = 'TikTok';
-          else if (lowerCat.includes('youtube')) platform = 'Youtube';
-          else if (lowerCat.includes('telegram')) platform = 'Telegram';
-          else if (lowerCat.includes('facebook')) platform = 'Facebook';
-          else if (lowerCat.includes('twitter') || lowerCat.includes('x.com') || lowerCat.includes(' x ')) platform = 'Twitter/X';
-          else if (lowerCat.includes('threads')) platform = 'Threads';
+          const lowerCat = cat.toLowerCase().trim();
+          if (lowerCat.includes('instagram') || lowerCat.includes('ig ')) platform = 'Instagram';
+          else if (lowerCat.includes('tiktok') || lowerCat.includes('tik tok')) platform = 'TikTok';
+          else if (lowerCat.includes('youtube') || lowerCat.includes('yt ')) platform = 'Youtube';
+          else if (lowerCat.includes('telegram') || lowerCat.includes('tg ')) platform = 'Telegram';
+          else if (lowerCat.includes('facebook') || lowerCat.includes('fb ')) platform = 'Facebook';
+          else if (lowerCat.includes('twitter') || lowerCat.includes('x.com') || lowerCat === 'x' || lowerCat.match(/\bx\b/)) platform = 'Twitter (X)';
+          else if (lowerCat.includes('threads') || lowerCat.includes('thread')) platform = 'Threads';
           else if (lowerCat.includes('spotify')) platform = 'Spotify';
           else if (lowerCat.includes('website') || lowerCat.includes('traffic')) platform = 'Website Traffic';
-          else if (lowerCat.includes('whatsapp') || lowerCat.includes('wa')) platform = 'WhatsApp';
+          else if (lowerCat.includes('whatsapp') || lowerCat.includes('wa ')) platform = 'WhatsApp';
           else if (lowerCat.includes('discord')) platform = 'Discord';
           
           if (!grouped[platform]) grouped[platform] = [];

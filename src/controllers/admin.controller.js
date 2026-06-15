@@ -188,9 +188,9 @@ class AdminController {
      }
 
      if (action === 'ADMIN_DEPOSIT_MENU') {
-         const pendingRows = await db.query('SELECT COUNT(*) as cnt FROM deposits WHERE status IN ("Pending", "WAITING_APPROVAL")');
-         const approvedRows = await db.query('SELECT COUNT(*) as cnt FROM deposits WHERE status = "Approved"');
-         const rejectedRows = await db.query('SELECT COUNT(*) as cnt FROM deposits WHERE status = "Rejected"');
+         const pendingRows = await db.query("SELECT COUNT(*) as cnt FROM deposits WHERE status IN ('Pending', 'WAITING_APPROVAL')");
+         const approvedRows = await db.query("SELECT COUNT(*) as cnt FROM deposits WHERE status = 'Approved'");
+         const rejectedRows = await db.query("SELECT COUNT(*) as cnt FROM deposits WHERE status = 'Rejected'");
          
          const pendingCount = pendingRows[0][0].cnt;
          const approvedCount = approvedRows[0][0].cnt;
@@ -230,7 +230,7 @@ class AdminController {
      }
      
      if (action === 'ADMIN_DEPOSIT_HISTORY') {
-         const hist = await db.query('SELECT * FROM deposits WHERE status IN ("Approved", "Rejected") ORDER BY update_at DESC, created_at DESC LIMIT 5');
+         const hist = await db.query("SELECT * FROM deposits WHERE status IN ('Approved', 'Rejected') ORDER BY update_at DESC, created_at DESC LIMIT 5");
          const deposits = hist[0];
          if (deposits.length === 0) {
              return ctx.editMessageText('Belum ada riwayat deposit.', {
@@ -248,7 +248,7 @@ class AdminController {
      }
 
      if (action === 'ADMIN_DEPOSIT_PENDING') {
-         const pending = await db.query('SELECT * FROM deposits WHERE status IN ("Pending", "WAITING_APPROVAL") ORDER BY created_at ASC LIMIT 1');
+         const pending = await db.query("SELECT * FROM deposits WHERE status IN ('Pending', 'WAITING_APPROVAL') ORDER BY created_at ASC LIMIT 1");
          const deposits = pending[0];
          if (deposits.length === 0) {
              return ctx.editMessageText('✅ Tidak ada deposit pending saat ini.', {
@@ -363,7 +363,7 @@ class AdminController {
              ...Markup.inlineKeyboard([
                  [Markup.button.callback('📤 Upload QRIS', 'ADMIN_ADD_QRIS')],
                  [Markup.button.callback('📋 Lihat QRIS Aktif', 'ADMIN_LIST_QRIS')],
-                 [Markup.button.callback('Ganti QRIS', 'ADMIN_REPLACE_QRIS'), Markup.button.callback('Hapus QRIS', 'ADMIN_DELETE_QRIS')],
+                 [Markup.button.callback('🖼 Ganti QRIS', 'ADMIN_CHANGE_QRIS'), Markup.button.callback('🗑 Hapus QRIS', 'ADMIN_DELETE_QRIS')],
                  [Markup.button.callback('🔙 Kembali', 'ADMIN_BANK')]
              ])
          }).catch(() => {});
@@ -380,9 +380,18 @@ class AdminController {
          return ctx.editMessageText(txt, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_QRIS')]])}).catch(() => {});
      }
      
-     if (action === 'ADMIN_REPLACE_QRIS' || action === 'ADMIN_DELETE_QRIS') {
-         // Placeholder for later, to not break.
-         return ctx.answerCbQuery('Gunakan Web Admin Hub untuk Ganti/Hapus, atau akan diupdate nanti.', { show_alert: true });
+     if (action === 'ADMIN_CHANGE_QRIS') {
+         // Masuk ke scene upload QRIS
+         return ctx.scene.enter('ADMIN_ADD_QRIS_SCENE');
+     }
+     
+     if (action === 'ADMIN_DELETE_QRIS') {
+         // Hapus semua QRIS dari database (qris_accounts & settings)
+         await db.query("DELETE FROM qris_accounts");
+         await db.query("DELETE FROM settings WHERE setting_key = 'deposit_qris_file_id'");
+         return ctx.editMessageText('✅ QRIS berhasil dihapus.', {
+             ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_QRIS')]])
+         }).catch(() => {});
      }
 
      if (action === 'ADMIN_ADD_QRIS') {

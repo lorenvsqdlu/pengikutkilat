@@ -161,11 +161,12 @@ class UserController {
        }
        buttons.push([Markup.button.callback('🔙 Kembali', 'menu_order_history_1')]);
 
+       await ctx.answerCbQuery('Status pesanan berhasil diperbarui!').catch(() => {});
+       
        await ctx.editMessageText(text, {
           parse_mode: 'HTML',
           ...Markup.inlineKeyboard(buttons)
-       });
-       await ctx.answerCbQuery('Status pesanan berhasil diperbarui!').catch(() => {});
+       }).catch(() => {});
      } catch (e) {
        logger.error(e.message);
        logger.error(e.stack);

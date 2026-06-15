@@ -12,7 +12,7 @@ const searchServicesScene = new Scenes.WizardScene(
     if (ctx.callbackQuery) {
         await ctx.answerCbQuery().catch(()=>{});
         if (ctx.callbackQuery.data === 'cancel_search') {
-            await ctx.editMessageText('Batal.');
+            await ctx.editMessageText('Batal.').catch(()=>{});
             return ctx.scene.leave();
         }
         return;
