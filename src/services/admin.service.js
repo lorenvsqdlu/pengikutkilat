@@ -6,8 +6,12 @@ class AdminService {
   }
 
   static async getStats() {
-    const [[{ total_users }]] = await db.query(`SELECT COUNT(*) as total_users FROM users`);
-    const [[{ total_orders, total_profit }]] = await db.query(`SELECT COUNT(*) as total_orders, SUM(profit) as total_profit FROM orders`);
+    const totalUsersRes = await db.query(`SELECT COUNT(*) as total_users FROM users`);
+    const total_users = totalUsersRes[0][0]?.total_users || 0;
+
+    const totalOrdersRes = await db.query(`SELECT COUNT(*) as total_orders, SUM(profit) as total_profit FROM orders`);
+    const total_orders = totalOrdersRes[0][0]?.total_orders || 0;
+    const total_profit = totalOrdersRes[0][0]?.total_profit || 0;
     return { 
       total_users, 
       total_orders, 

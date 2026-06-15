@@ -71,7 +71,8 @@ class RefillController {
 
           const db = require('../database');
           const [refills] = await db.query(`SELECT r.*, o.service_name FROM refills r LEFT JOIN orders o ON r.order_id = o.id WHERE r.user_id = ? ORDER BY r.created_at DESC LIMIT ? OFFSET ?`, [user.telegram_id, limit, offset]);
-          const [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM refills WHERE user_id = ?`, [user.telegram_id]);
+          const totalRes = await db.query(`SELECT COUNT(*) as total FROM refills WHERE user_id = ?`, [user.telegram_id]);
+          const total = totalRes[0][0]?.total || 0;
 
           const { Markup } = require('telegraf');
           if (refills.length === 0) {
@@ -101,8 +102,7 @@ class RefillController {
           }).catch(()=>{});
 
       } catch (e) {
-          logger.error(e.message);
-          logger.error(e.stack);
+          logger.error(`[REFILL ERROR]\nUser ID: ${ctx.from?.id}\nUsername: ${ctx.from?.username}\nCallback Data: ${ctx.callbackQuery?.data}\nCurrent Scene: none\nError: ${e.message}\nStack: ${e.stack}`);
       }
   }
   static async handleRefill(ctx) {

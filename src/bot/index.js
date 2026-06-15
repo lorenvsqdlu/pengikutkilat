@@ -84,10 +84,20 @@ bot.action('menu_balance', async (ctx) => {
   await UserController.handleSaldo(ctx);
 });
 bot.action('menu_refill', async (ctx) => {
-  await ctx.answerCbQuery().catch(() => {});
-  const RefillController = require('../controllers/refill.controller');
-  ctx.match = [null, '1']; // Simulate page 1
-  await RefillController.handleRefillHistory(ctx);
+  try {
+    await ctx.answerCbQuery().catch(() => {});
+    const { Markup } = require('telegraf');
+    const text = `♻️ *REQUEST REFILL*\n\nSilakan gunakan perintah berikut untuk melakukan refill pada order Anda:\n\n\`/refill <ID Order>\`\n\nContoh:\n\`/refill 123456\``;
+    await ctx.editMessageText(text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('📜 Riwayat Refill', 'menu_refill_history_1')],
+        [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
+      ])
+    }).catch(() => {});
+  } catch (e) {
+    logger.error(`[REFILL ERROR]\nUser ID: ${ctx.from?.id}\nUsername: ${ctx.from?.username}\nCallback Data: menu_refill\nError: ${e.message}\nStack: ${e.stack}`);
+  }
 });
 bot.action('back_to_menu_main', async (ctx) => {
   const StartController = require('../controllers/start.controller');

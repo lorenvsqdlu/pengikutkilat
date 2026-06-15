@@ -17,7 +17,8 @@ class UserController {
       const db = require('../database');
       const [orders] = await db.query(`SELECT id, created_at, status, service_name FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`, [user.telegram_id, limit, offset]);
       
-      const [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM orders WHERE user_id = ?`, [user.telegram_id]);
+      const totalRes = await db.query(`SELECT COUNT(*) as total FROM orders WHERE user_id = ?`, [user.telegram_id]);
+      const total = totalRes[0][0]?.total || 0;
       
       if (orders.length === 0) {
         return sendOrEdit(ctx, 'Belum ada riwayat pesanan.', { 
@@ -183,11 +184,20 @@ class UserController {
       
       const db = require('../database');
       
-      const [[{ total_order }]] = await db.query(`SELECT COUNT(*) as total_order FROM orders WHERE user_id = ?`, [user.telegram_id]);
-      const [[{ order_selesai }]] = await db.query(`SELECT COUNT(*) as order_selesai FROM orders WHERE user_id = ? AND status IN ('Completed', 'Success')`, [user.telegram_id]);
-      const [[{ order_diproses }]] = await db.query(`SELECT COUNT(*) as order_diproses FROM orders WHERE user_id = ? AND status IN ('Pending', 'Processing', 'In progress')`, [user.telegram_id]);
-      const [[{ order_gagal }]] = await db.query(`SELECT COUNT(*) as order_gagal FROM orders WHERE user_id = ? AND status IN ('Canceled', 'Cancelled', 'Error', 'Fail', 'Failed')`, [user.telegram_id]);
-      const [[{ total_refill }]] = await db.query(`SELECT COUNT(*) as total_refill FROM refills WHERE user_id = ?`, [user.telegram_id]);
+      const ordersRes = await db.query(`SELECT COUNT(*) as total_order FROM orders WHERE user_id = ?`, [user.telegram_id]);
+      const total_order = ordersRes[0][0]?.total_order || 0;
+      
+      const selesaiRes = await db.query(`SELECT COUNT(*) as order_selesai FROM orders WHERE user_id = ? AND status IN ('Completed', 'Success')`, [user.telegram_id]);
+      const order_selesai = selesaiRes[0][0]?.order_selesai || 0;
+      
+      const diprosesRes = await db.query(`SELECT COUNT(*) as order_diproses FROM orders WHERE user_id = ? AND status IN ('Pending', 'Processing', 'In progress')`, [user.telegram_id]);
+      const order_diproses = diprosesRes[0][0]?.order_diproses || 0;
+      
+      const gagalRes = await db.query(`SELECT COUNT(*) as order_gagal FROM orders WHERE user_id = ? AND status IN ('Canceled', 'Cancelled', 'Error', 'Fail', 'Failed', 'Partial')`, [user.telegram_id]);
+      const order_gagal = gagalRes[0][0]?.order_gagal || 0;
+      
+      const refillRes = await db.query(`SELECT COUNT(*) as total_refill FROM refills WHERE user_id = ?`, [user.telegram_id]);
+      const total_refill = refillRes[0][0]?.total_refill || 0;
       
       const balanceStr = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(user.balance);
       const d = new Date(user.created_at);
@@ -220,8 +230,7 @@ class UserController {
         ])
       });
     } catch (error) {
-      logger.error(error.message);
-      logger.error(error.stack);
+      logger.error(`[PROFILE ERROR]\nUser ID: ${ctx.from?.id}\nUsername: ${ctx.from?.username}\nError: ${error.message}\nStack: ${error.stack}`);
       await sendOrEdit(ctx, 'Terjadi kesalahan saat memuat profil Anda.');
     }
   }
