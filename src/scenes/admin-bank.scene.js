@@ -30,4 +30,35 @@ const adminBankScene = new Scenes.WizardScene(
 );
 adminBankScene.command('cancel', (ctx) => { ctx.reply('Batal.'); ctx.scene.leave(); });
 
-module.exports = { adminBankScene };
+const adminToggleBankScene = new Scenes.WizardScene(
+    'ADMIN_TOGGLE_BANK_SCENE',
+    async (ctx) => {
+        const isEnable = ctx.scene.state.type === 'enable';
+        ctx.wizard.state.isEnable = isEnable;
+        
+        await ctx.reply(`🏦 *${isEnable ? 'AKTIFKAN' : 'NONAKTIFKAN'} REKENING*\n\nKirimkan ID Rekening yang ingin di${isEnable ? 'aktifkan' : 'nonaktifkan'}:\n(Ketik /cancel untuk batal)`, { parse_mode: 'Markdown' });
+        return ctx.wizard.next();
+    },
+    async (ctx) => {
+        if (ctx.message?.text === '/cancel' || !ctx.message) return ctx.scene.leave();
+        const id = parseInt(ctx.message.text.trim());
+        if (isNaN(id)) {
+            await ctx.reply('❌ ID harus berupa angka. Coba lagi.');
+            return;
+        }
+        
+        const isEnable = ctx.wizard.state.isEnable;
+        const bank = await BankService.getBankById(id);
+        if (!bank) {
+            await ctx.reply('❌ Rekening tidak ditemukan. Pastikan ID benar.');
+            return ctx.scene.leave();
+        }
+        
+        await BankService.toggleActive(id, isEnable);
+        await ctx.reply(`✅ Rekening ${bank.bank_name} - ${bank.account_number} berhasil di${isEnable ? 'aktifkan' : 'nonaktifkan'}.`);
+        return ctx.scene.leave();
+    }
+);
+adminToggleBankScene.command('cancel', (ctx) => { ctx.reply('Batal.'); ctx.scene.leave(); });
+
+module.exports = { adminBankScene, adminToggleBankScene };

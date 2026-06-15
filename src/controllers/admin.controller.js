@@ -128,25 +128,16 @@ class AdminController {
         Markup.button.callback('⏳ Deposit Pending', 'ADMIN_DEPOSIT_PENDING'),
         Markup.button.callback('📊 Statistik Web', 'ADMIN_STATS')
       ],
-      [Markup.button.callback('📢 Broadcast Notif', 'ADMIN_BROADCAST_MENU')],
-      [
-        Markup.button.callback('➕ Saldo User', 'ADMIN_BAL_ADD'),
-        Markup.button.callback('➖ Saldo User', 'ADMIN_BAL_SUB')
-      ],
-      [
-        Markup.button.callback('🚫 Ban User', 'ADMIN_BAN_ADD'),
-        Markup.button.callback('✅ Unban User', 'ADMIN_BAN_SUB')
-      ],
+      [Markup.button.callback('👥 Kelola User', 'ADMIN_USER_MENU')],
       [Markup.button.callback('⚙️ Ubah Markup %', 'ADMIN_MARKUP')],
-      [
-        Markup.button.callback('🏦 Kelola Rekening', 'ADMIN_BANK'),
-        Markup.button.callback('🏷 Kelola QRIS', 'ADMIN_QRIS')
-      ],
+      [Markup.button.callback('🏦 Kelola Rekening', 'ADMIN_BANK')],
+      [Markup.button.callback('⚙️ Pengaturan Bot', 'ADMIN_BOT_SETTINGS')],
       [Markup.button.callback('💰 Cek SMM', 'ADMIN_SMM')]
     ];
     
     if (ctx.callbackQuery) {
-      await ctx.editMessageText(menuText, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+      // Use catch to avoid MESSAGE_NOT_MODIFIED error
+      await ctx.editMessageText(menuText, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }).catch(() => {});
     } else {
       await ctx.reply(menuText, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
     }
@@ -158,6 +149,31 @@ class AdminController {
      
      if (action === 'ADMIN_MENU') return AdminController.handleAdminMenu(ctx);
      
+     if (action === 'ADMIN_BOT_SETTINGS') {
+         await ctx.editMessageText('⚙️ *PENGATURAN BOT*\n\nPilih aksi di bawah ini:', {
+             parse_mode: 'Markdown',
+             ...Markup.inlineKeyboard([
+                 [Markup.button.callback('👋 Set Welcome', 'ADMIN_SET_WELCOME')],
+                 [Markup.button.callback('🔒 Force Subscribe', 'ADMIN_FORCE_SUB')],
+                 [Markup.button.callback('📢 Broadcast', 'ADMIN_BROADCAST_MENU')],
+                 [Markup.button.callback('🔙 Kembali', 'ADMIN_MENU')]
+             ])
+         }).catch(() => {});
+     }
+
+     if (action === 'ADMIN_USER_MENU') {
+         await ctx.editMessageText('👥 *KELOLA USER*\n\nPilih aksi di bawah ini:\n_Kamu dapat menggunakan Username/Telegram ID pada seluruh fitur ini._', {
+             parse_mode: 'Markdown',
+             ...Markup.inlineKeyboard([
+                 [Markup.button.callback('➕ Tambah Saldo', 'ADMIN_BAL_ADD')],
+                 [Markup.button.callback('➖ Kurangi Saldo', 'ADMIN_BAL_SUB')],
+                 [Markup.button.callback('🚫 Ban User', 'ADMIN_BAN_ADD')],
+                 [Markup.button.callback('✅ Unban User', 'ADMIN_BAN_SUB')],
+                 [Markup.button.callback('🔙 Kembali', 'ADMIN_MENU')]
+             ])
+         }).catch(() => {});
+     }
+
      if (action === 'ADMIN_DEPOSIT_PENDING') {
          const pending = await db.query('SELECT * FROM deposits WHERE status = ? ORDER BY created_at ASC LIMIT 10', ['Pending']);
          const deposits = pending[0];
@@ -211,21 +227,24 @@ class AdminController {
          await ctx.editMessageText('🏦 *KELOLA REKENING*\n\nPilih aksi di bawah ini:', {
              parse_mode: 'Markdown',
              ...Markup.inlineKeyboard([
-                 [Markup.button.callback('➕ Tambah Rekening', 'ADMIN_ADD_BANK')],
-                 [Markup.button.callback('📋 Daftar Rekening Aktif', 'ADMIN_LIST_BANK')],
+                 [Markup.button.callback('➕ Tambah Rekening', 'ADMIN_ADD_BANK'), Markup.button.callback('📋 Daftar Rekening', 'ADMIN_LIST_BANK')],
+                 [Markup.button.callback('❌ Nonaktifkan Rekening', 'ADMIN_DISABLE_BANK'), Markup.button.callback('✅ Aktifkan Rekening', 'ADMIN_ENABLE_BANK')],
+                 [Markup.button.callback('🏷 Kelola QRIS', 'ADMIN_QRIS')],
                  [Markup.button.callback('🔙 Kembali', 'ADMIN_MENU')]
              ])
-         });
+         }).catch(() => {});
      }
      
      if (action === 'ADMIN_ADD_BANK') return ctx.scene.enter('ADMIN_ADD_BANK_SCENE');
+     if (action === 'ADMIN_DISABLE_BANK') return ctx.scene.enter('ADMIN_TOGGLE_BANK_SCENE', { type: 'disable' });
+     if (action === 'ADMIN_ENABLE_BANK') return ctx.scene.enter('ADMIN_TOGGLE_BANK_SCENE', { type: 'enable' });
      
      if (action === 'ADMIN_LIST_BANK') {
          const banks = await BankService.getAllBanks();
          if (banks.length === 0) {
              await ctx.editMessageText('Belum ada rekening yang terdaftar.', {
                  ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_BANK')]])
-             });
+             }).catch(() => {});
              return;
          }
          let txt = '🏦 *DAFTAR REKENING*\n\n';
@@ -235,26 +254,47 @@ class AdminController {
          await ctx.editMessageText(txt, {
              parse_mode: 'Markdown',
              ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_BANK')]])
-         });
+         }).catch(() => {});
      }
 
      if (action === 'ADMIN_QRIS') {
          const QrisService = require('../services/qris.service');
          const qrisList = await QrisService.getActiveQris();
-         let txt = `🏷 *Manajemen QRIS*\n\nSaat ini ada ${qrisList.length} QRIS aktif.\n\n_Pilih aksi di bawah ini, atau gunakan Web Admin Hub untuk manajemen lengkap (Edit/Hapus via Web)._`;
+         let txt = `🏷 *Manajemen QRIS*\n\nSaat ini ada ${qrisList.length} QRIS aktif.\n\n_Pilih aksi di bawah ini:_`;
          await ctx.editMessageText(txt, {
              parse_mode: 'Markdown',
              ...Markup.inlineKeyboard([
-                 [Markup.button.callback('➕ Tambah QRIS (via Bot)', 'ADMIN_ADD_QRIS')],
-                 [Markup.button.callback('🔙 Kembali', 'ADMIN_MENU')]
+                 [Markup.button.callback('📤 Upload QRIS', 'ADMIN_ADD_QRIS')],
+                 [Markup.button.callback('📋 Lihat QRIS Aktif', 'ADMIN_LIST_QRIS')],
+                 [Markup.button.callback('Ganti QRIS', 'ADMIN_REPLACE_QRIS'), Markup.button.callback('Hapus QRIS', 'ADMIN_DELETE_QRIS')],
+                 [Markup.button.callback('🔙 Kembali', 'ADMIN_BANK')]
              ])
-         });
+         }).catch(() => {});
      }
      
+     if (action === 'ADMIN_LIST_QRIS') {
+         const QrisService = require('../services/qris.service');
+         const qrisList = await QrisService.getActiveQris();
+         if (qrisList.length === 0) {
+             return ctx.editMessageText('Belum ada QRIS aktif.', { ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_QRIS')]])}).catch(() => {});
+         }
+         let txt = '🏷 *DAFTAR QRIS AKTIF*\n\n';
+         qrisList.forEach(q => txt += `- ID: ${q.id} | ${q.qris_name}\n`);
+         return ctx.editMessageText(txt, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_QRIS')]])}).catch(() => {});
+     }
+     
+     if (action === 'ADMIN_REPLACE_QRIS' || action === 'ADMIN_DELETE_QRIS') {
+         // Placeholder for later, to not break.
+         return ctx.answerCbQuery('Gunakan Web Admin Hub untuk Ganti/Hapus, atau akan diupdate nanti.', { show_alert: true });
+     }
+
      if (action === 'ADMIN_ADD_QRIS') {
          await ctx.answerCbQuery().catch(() => {});
          return ctx.scene.enter('ADMIN_ADD_QRIS_SCENE');
      }
+     
+     if (action === 'ADMIN_SET_WELCOME') return ctx.scene.enter('ADMIN_SET_WELCOME_SCENE');
+     if (action === 'ADMIN_FORCE_SUB') return ctx.scene.enter('ADMIN_FORCE_SUB_SCENE');
 
      if (action.startsWith('DEP_APPROVE_')) {
          const refId = action.replace('DEP_APPROVE_', '');

@@ -67,13 +67,18 @@ class UserController {
        const sName = order.service_name ? order.service_name.replace(/</g, "&lt;").replace(/>/g, "&gt;") : 'Layanan SMM';
 
        const text = `<b>Detail Pesanan #${order.id}</b>\n\n<b>ID Pesanan:</b>\n#${order.id}\n<b>Dibuat:</b>\n${dateStr}\n<b>Layanan:</b>\n${sName}\n<b>Target:</b>\n${order.target}\n<b>Jumlah Pesan:</b>\n${order.quantity}\n<b>Biaya:</b>\nRp ${order.sell_price}\n<b>Jumlah Awal:</b>\n${order.start_count || 0}\n<b>Sisa:</b>\n${order.remains || 0}\n<b>Status:</b>\n${order.status}`;
+       
+       const buttons = [
+          [Markup.button.callback('🔄 Refresh Pesanan', `refresh_order_${order.id}`)],
+       ];
+       if (order.status === 'Completed') {
+           buttons.push([Markup.button.callback('♻️ Refill Pesanan', `refill_order_${order.id}`)]);
+       }
+       buttons.push([Markup.button.callback('🔙 Kembali', 'menu_order_history_1')]);
 
        await sendOrEdit(ctx, text, {
           parse_mode: 'HTML',
-          ...Markup.inlineKeyboard([
-             [Markup.button.callback('🔄 Refresh Pesanan', `refresh_order_${order.id}`)],
-             [Markup.button.callback('🔙 Kembali', 'menu_order_history_1')]
-          ])
+          ...Markup.inlineKeyboard(buttons)
        });
      } catch (e) {
        logger.error('handleOrderDetail error:', e);
@@ -97,6 +102,11 @@ class UserController {
            return ctx.answerCbQuery('Status masih Pending (belum diteruskan ke provider).', { show_alert: true }).catch(() => {});
        }
 
+       let statusChanged = false;
+       const oldStatus = order.status;
+       const oldStartCount = order.start_count || 0;
+       const oldRemains = order.remains || 0;
+
        if (order.api_order_id && !['Completed', 'Canceled', 'Cancelled', 'Partial'].includes(order.status)) {
            const smmService = require('../services/smm.service');
            try {
@@ -110,16 +120,26 @@ class UserController {
                        const sc = apiData.start_count !== undefined && !isNaN(parseInt(apiData.start_count)) ? parseInt(apiData.start_count) : order.start_count;
                        const rem = apiData.remains !== undefined && !isNaN(parseInt(apiData.remains)) ? parseInt(apiData.remains) : order.remains;
                        
-                       order.status = finalStatus;
-                       order.start_count = sc || 0;
-                       order.remains = rem || 0;
-
-                       await db.query(`UPDATE orders SET status = ?, start_count = ?, remains = ? WHERE id = ?`, [finalStatus, order.start_count, order.remains, order.id]);
+                       if (finalStatus !== oldStatus || sc !== oldStartCount || rem !== oldRemains) {
+                           statusChanged = true;
+                           order.status = finalStatus;
+                           order.start_count = sc || 0;
+                           order.remains = rem || 0;
+                           await db.query(`UPDATE orders SET status = ?, start_count = ?, remains = ? WHERE id = ?`, [finalStatus, order.start_count, order.remains, order.id]);
+                       }
                    }
                }
            } catch(apiError) {
                return ctx.answerCbQuery(`API Gagal: ${apiError.message}`, { show_alert: true }).catch(() => {});
            }
+       }
+
+       if (!statusChanged && ['Completed', 'Canceled', 'Cancelled', 'Partial'].includes(order.status)) {
+           return ctx.answerCbQuery('Pesanan sudah final, tidak ada pembaruan status.', { show_alert: true }).catch(() => {});
+       }
+
+       if (!statusChanged) {
+           return ctx.answerCbQuery('Belum ada perubahan status dari provider.', { show_alert: true }).catch(() => {});
        }
 
        const d = new Date(order.created_at);
@@ -128,20 +148,22 @@ class UserController {
        
        const sName = order.service_name ? order.service_name.replace(/</g, "&lt;").replace(/>/g, "&gt;") : 'Layanan SMM';
 
-       const text = `<b>Detail Pesanan #${order.id}</b>\n\n<b>ID Pesanan:</b>\n#${order.id}\n<b>Dibuat:</b>\n${dateStr}\n<b>Layanan:</b>\n${sName}\n<b>Target:</b>\n${order.target}\n<b>Jumlah Pesan:</b>\n${order.quantity}\n<b>Biaya:</b>\nRp ${order.sell_price}\n<b>Jumlah Awal:</b>\n${order.start_count || 0}\n<b>Sisa:</b>\n${order.remains || 0}\n<b>Status:</b>\n${order.status}`;
+       const text = `<b>Detail Pesanan #${order.id}</b>\n\n<b>ID Pesanan:</b>\n#${order.id}\n<b>Dibuat:</b>\n${dateStr}\n<b>Layanan:</b>\n${sName}\n<b>Target:</b>\n${order.target}\n<b>Jumlah Pesan:</b>\n${order.quantity}\n<b>Biaya:</b>\nRp ${order.sell_price}\n<b>Jumlah Awal:</b>\n${order.start_count || 0}\n<b>Sisa:</b>\n${order.remains || 0}\n<b>Status:</b>\n${oldStatus} ➡️ <b>${order.status}</b>`;
+       
+       const buttons = [
+          [Markup.button.callback('🔄 Refresh Pesanan', `refresh_order_${order.id}`)],
+       ];
+       if (order.status === 'Completed') {
+           buttons.push([Markup.button.callback('♻️ Refill Pesanan', `refill_order_${order.id}`)]);
+       }
+       buttons.push([Markup.button.callback('🔙 Kembali', 'menu_order_history_1')]);
 
        await ctx.editMessageText(text, {
           parse_mode: 'HTML',
-          ...Markup.inlineKeyboard([
-             [Markup.button.callback('🔄 Refresh Pesanan', `refresh_order_${order.id}`)],
-             [Markup.button.callback('🔙 Kembali', 'menu_order_history_1')]
-          ])
+          ...Markup.inlineKeyboard(buttons)
        });
-       await ctx.answerCbQuery('Pesanan berhasil di-refresh!').catch(() => {});
+       await ctx.answerCbQuery('Status pesanan berhasil diperbarui!').catch(() => {});
      } catch (e) {
-       if (e.description && e.description.includes('message is not modified')) {
-           return ctx.answerCbQuery('Belum ada perubahan status dari API provider.', { show_alert: true }).catch(() => {});
-       }
        logger.error('handleRefreshOrder error:', e);
        await ctx.answerCbQuery('Gagal refresh, coba lagi nanti.', { show_alert: true }).catch(() => {});
      }
@@ -156,19 +178,42 @@ class UserController {
         return await sendOrEdit(ctx, 'Data pengguna tidak ditemukan. Silakan kirim perintah /start terlebih dahulu untuk mendaftar.');
       }
       
+      const db = require('../database');
+      
+      const [[{ total_order }]] = await db.query(`SELECT COUNT(*) as total_order FROM orders WHERE user_id = ?`, [user.telegram_id]);
+      const [[{ order_selesai }]] = await db.query(`SELECT COUNT(*) as order_selesai FROM orders WHERE user_id = ? AND status IN ('Completed', 'Success')`, [user.telegram_id]);
+      const [[{ order_diproses }]] = await db.query(`SELECT COUNT(*) as order_diproses FROM orders WHERE user_id = ? AND status IN ('Pending', 'Processing', 'In progress')`, [user.telegram_id]);
+      const [[{ order_gagal }]] = await db.query(`SELECT COUNT(*) as order_gagal FROM orders WHERE user_id = ? AND status IN ('Canceled', 'Cancelled', 'Error', 'Fail', 'Failed')`, [user.telegram_id]);
+      const [[{ total_refill }]] = await db.query(`SELECT COUNT(*) as total_refill FROM refills WHERE user_id = ?`, [user.telegram_id]);
+      
+      const balanceStr = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(user.balance);
+      const d = new Date(user.created_at);
+      const months = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"];
+      const dateStr = `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+
       const profileText = `
 👤 *PROFIL PENGGUNA*
 ━━━━━━━━━━━━━━━━━━━━
-*ID:* \`${user.telegram_id}\`
-*Username:* ${user.username ? '@' + user.username : 'Tidak diset'}
-*Nama:* ${user.fullname}
-*Terdaftar:* ${new Date(user.created_at).toLocaleString('id-ID')}
+🆔 *ID:* \`${user.telegram_id}\`
+👤 *Username:* ${user.username ? '@' + user.username : 'Tidak diset'}
+📛 *Nama:* ${user.fullname}
+💰 *Saldo:* ${balanceStr}
+
+📦 *Total Order:* ${total_order}
+✅ *Order Selesai:* ${order_selesai}
+⏳ *Order Diproses:* ${order_diproses}
+❌ *Order Gagal:* ${order_gagal}
+♻️ *Total Refill:* ${total_refill}
+
+📅 *Tanggal Daftar:* ${dateStr}
       `;
       
       await sendOrEdit(ctx, profileText.trim(), { 
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
+          [Markup.button.callback('💳 Deposit', 'menu_deposit'), Markup.button.callback('📦 Riwayat Order', 'menu_order_history_1')],
+          [Markup.button.callback('♻️ Riwayat Refill', 'menu_refill_history_1')],
+          [Markup.button.callback('🔙 Kembali', 'back_to_menu_main')]
         ])
       });
     } catch (error) {
@@ -207,18 +252,24 @@ class UserController {
     }
   }
 
-  static async handleServices(ctx) {
+  static async handleServices(ctx, queryStrOverride = false) {
     try {
       if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+      
+      // Clear keyword if coming directly from main menu without pagination
+      if (ctx.callbackQuery && ctx.callbackQuery.data === 'menu_services') {
+          if (ctx.session) ctx.session.searchKeyword = '';
+      }
+      
       // Allow searching by parsing args if from text command
-      let keyword = '';
-      if (ctx.message && ctx.message.text) {
+      let keyword = ctx.session && ctx.session.searchKeyword ? ctx.session.searchKeyword : '';
+      if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/services')) {
           keyword = ctx.message.text.split(' ').slice(1).join(' ');
       }
       
       const smmService = require('../services/smm.service');
-      const AdminService = require('../services/admin.service');
-      const config = require('../config');
+      const ProfitEngine = require('../services/profit.engine');
+      const { Markup } = require('telegraf');
       
       const queryStr = keyword.trim();
       let grouped = [];
@@ -229,49 +280,56 @@ class UserController {
           grouped = smmService.getGroupedServices();
       }
       
-      const keyboard = Markup.inlineKeyboard([
-          [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
-      ]);
-
-      if (!grouped || grouped.length === 0) {
-         return await sendOrEdit(ctx, queryStr ? `Pencarian "${queryStr}" tidak menemukan layanan apapun.` : 'Daftar layanan sedang kosong atau belum tersedia.', { ...keyboard });
+      let allServices = [];
+      for (const group of grouped) {
+          for (const s of group.services) {
+              allServices.push({ ...s, _platformContext: group.platform });
+          }
       }
       
-      const ProfitEngine = require('../services/profit.engine');
+      if (allServices.length === 0) {
+         return await sendOrEdit(ctx, queryStr ? `Pencarian "${queryStr}" tidak menemukan layanan apapun.` : 'Daftar layanan sedang kosong atau belum tersedia.', { 
+             ...Markup.inlineKeyboard([
+                 [Markup.button.callback('🔍 Cari Layanan', 'search_services')],
+                 [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
+             ])
+         });
+      }
+      
+      const page = ctx.match && ctx.match[1] ? parseInt(ctx.match[1]) : 1;
+      const limit = 10;
+      const totalPages = Math.ceil(allServices.length / limit);
+      const actualPage = Math.min(Math.max(1, page), totalPages || 1);
+      const offset = (actualPage - 1) * limit;
+      const displayServices = allServices.slice(offset, offset + limit);
+      
       const formatRupiah = (angka) => {
         return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(angka);
       };
       
-      let resText = `📋 *DAFTAR LAYANAN*\n${queryStr ? `Pencarian: ${queryStr}\n` : ''}━━━━━━━━━━━━━━━━\n`;
+      let resText = `📋 *DAFTAR LAYANAN*\n${queryStr ? `Pencarian: ${queryStr}\n` : ''}Halaman ${actualPage}/${totalPages}\n━━━━━━━━━━━━━━━━\n`;
       
-      // Limit to max 10 categories if no search to avoid too long message
-      const displayGroups = queryStr ? grouped : grouped.slice(0, 10);
-      
-      for (const group of displayGroups) {
-          let catText = `\n📂 *${group.category}*\n`;
-          let limitItems = queryStr ? group.services : group.services.slice(0, 5);
-          for (const s of limitItems) {
-              const basePrice = parseFloat(s.price);
-              const calculated = await ProfitEngine.calculatePrice(basePrice, 1000, group.category);
-              const sellPrice = calculated.sell_price;
-              catText += ` ↳ ID: \`${s.service || s.id}\` | ${s.name}\n     💰 ${formatRupiah(sellPrice)} | 📊 Min: ${s.min} Max: ${s.max} | ⚙️ Tipe: ${s.type}\n`;
-          }
-          if (!queryStr && group.services.length > 5) {
-               catText += `   ... _dan ${group.services.length - 5} lainnya (Gunakan pencarian)_ \n`;
-          }
-          
-          if (resText.length + catText.length > 3500) {
-              resText += `\n_...Pesan terlalu panjang, silakan gunakan pencarian._`;
-              break;
-          }
-          resText += catText;
+      for (const s of displayServices) {
+          const basePrice = parseFloat(s.price);
+          const calculated = await ProfitEngine.calculatePrice(basePrice, 1000, s.category);
+          const sellPrice = calculated.sell_price;
+          resText += `📂 *${s.category}*\n`;
+          resText += ` ↳ ID: \`${s.service || s.id}\` | ${s.name}\n     💰 ${formatRupiah(sellPrice)} | 📊 Min: ${s.min} Max: ${s.max} | ⚙️ Tipe: ${s.type}\n\n`;
       }
       
-      if (!queryStr) {
-          resText += `\n💡 Tip: Coba cari dengan \`/services instagram\` atau \`/services follower\``;
-      }
+      const navButtons = [];
+      if (actualPage > 1) navButtons.push(Markup.button.callback('⬅️ Prev', `menu_services_${actualPage - 1}`));
+      if (actualPage < totalPages) navButtons.push(Markup.button.callback('Next ➡️', `menu_services_${actualPage + 1}`));
       
-      await sendOrEdit(ctx, resText, { parse_mode: 'Markdown', ...keyboard });
+      const buttons = [];
+      if (navButtons.length > 0) buttons.push(navButtons);
+      buttons.push([Markup.button.callback('🔍 Cari Layanan', 'search_services')]);
+      buttons.push([Markup.button.callback('🔙 Kembali', 'back_to_menu_main')]);
+      
+      await sendOrEdit(ctx, resText.trim(), { 
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard(buttons)
+      });
       
     } catch (error) {
        logger.error('Error in handleServices', error);

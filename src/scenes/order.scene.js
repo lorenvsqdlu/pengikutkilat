@@ -91,7 +91,12 @@ const orderScene = new Scenes.WizardScene(
     const buttons = [];
     let row = [];
     
+    let hasLainnya = false;
     groupedServices.forEach(g => {
+        if (g.platform === 'Lainnya') {
+            hasLainnya = g.services.length > 0;
+            return;
+        }
         if (g.services.length > 0) {
             row.push(Markup.button.callback(g.platform, `PLATFORM_${g.platform}`));
             if (row.length === 2) {
@@ -100,7 +105,13 @@ const orderScene = new Scenes.WizardScene(
             }
         }
     });
-    if (row.length > 0) buttons.push(row);
+    
+    if (row.length > 0) {
+       buttons.push(row);
+    }
+    if (hasLainnya) {
+       buttons.push([Markup.button.callback('Lainnya', 'PLATFORM_Lainnya')]);
+    }
     buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
     
     await sendOrEdit(ctx, '🛍️ *Pilih Platform*', {
@@ -138,17 +149,28 @@ const orderScene = new Scenes.WizardScene(
 
       const buttons = [];
       let catIndex = 0;
+      
+      let hasCatLainnya = false;
       categories.forEach(cat => {
-          // Bikin callback data yang unik tapi tidak over 64 bytes
+          if (cat === 'Lainnya') { 
+              hasCatLainnya = true; 
+              return; 
+          }
           const callbackData = `CAT_${catIndex++}`;
-          
-          // Simpan map di context
           if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
           ctx.wizard.state.catMap[callbackData] = cat;
-
           buttons.push([Markup.button.callback(cat.substring(0, 40), callbackData)]);
       });
-      buttons.push([Markup.button.callback('🔙 Kembali', 'BACK_TO_PLATS'), Markup.button.callback('❌ Batal', 'CANCEL')]);
+      
+      if (hasCatLainnya) {
+          const callbackData = `CAT_${catIndex++}`;
+          if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
+          ctx.wizard.state.catMap[callbackData] = 'Lainnya';
+          buttons.push([Markup.button.callback('Lainnya', callbackData)]);
+      }
+
+      buttons.push([Markup.button.callback('🔙 Kembali', 'BACK_TO_PLATS')]);
+      buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
 
       await sendOrEdit(ctx, `Pilih Kategori ${platformName}:`, {
         ...Markup.inlineKeyboard(buttons)

@@ -151,6 +151,10 @@ async function initDatabase() {
 
     // Ensure default settings exist
     await db.run('INSERT OR IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)', ['markup_percent', '20']);
+    await db.run('INSERT OR IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)', ['welcome_enabled', 'false']);
+    await db.run('INSERT OR IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)', ['welcome_message', 'Halo {first_name},\nSelamat datang di grup kami.']);
+    await db.run('INSERT OR IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)', ['force_subscribe_enabled', 'false']);
+    await db.run('INSERT OR IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)', ['force_subscribe_channel', '']);
 
     logger.info('SQLite Tables initialized.');
     return db;

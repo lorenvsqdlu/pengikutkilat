@@ -6,10 +6,9 @@ class StartController {
   static getMainMenuExtra() {
     return Markup.inlineKeyboard([
       [Markup.button.callback('📦 Order', 'menu_order'), Markup.button.callback('🛒 Services', 'menu_services')],
-      [Markup.button.callback('💰 Deposit', 'menu_deposit'), Markup.button.callback('📜 Riwayat Deposit', 'menu_history')],
-      [Markup.button.callback('📜 Riwayat Pesanan', 'menu_order_history_1'), Markup.button.callback('👤 Profile', 'menu_profile')],
-      [Markup.button.callback('💳 Saldo', 'menu_balance'), Markup.button.callback('♻️ Refill', 'menu_refill')],
-      [Markup.button.callback('ℹ️ Informasi & Ketentuan', 'menu_informasi_ketentuan')]
+      [Markup.button.callback('💰 Deposit', 'menu_deposit'), Markup.button.callback('📜 Riwayat Order', 'menu_order_history_1')],
+      [Markup.button.callback('👤 Profile', 'menu_profile'), Markup.button.callback('💳 Saldo', 'menu_balance')],
+      [Markup.button.callback('♻️ Refill', 'menu_refill'), Markup.button.callback('ℹ️ Info & Ketentuan', 'menu_informasi_ketentuan')]
     ]);
   }
 

@@ -11,8 +11,10 @@ const depositScene = require('../scenes/deposit.scene');
 const qrisPaymentScene = require('../scenes/qris-payment.scene');
 const adminQrisScene = require('../scenes/admin-qris.scene');
 const { manualDepositScene, rejectDepositScene } = require('../scenes/deposit-manual.scene');
-const { adminBankScene } = require('../scenes/admin-bank.scene');
+const { adminBankScene, adminToggleBankScene } = require('../scenes/admin-bank.scene');
 const { adminBroadcastScene, adminMarkupScene, adminBalanceScene, adminBanScene } = require('../scenes/admin.scenes');
+const { adminSetWelcomeScene, adminForceSubScene } = require('../scenes/admin.settings.scene');
+const searchServicesScene = require('../scenes/search-services.scene');
 const adminMiddleware = require('../middlewares/admin.middleware');
 const authMiddleware = require('../middlewares/auth.middleware');
 const AdminController = require('../controllers/admin.controller');
@@ -36,10 +38,14 @@ const stage = new Scenes.Stage([
   manualDepositScene,
   rejectDepositScene,
   adminBankScene,
+  adminToggleBankScene,
   adminBroadcastScene, 
   adminMarkupScene, 
   adminBalanceScene, 
-  adminBanScene
+  adminBanScene,
+  adminSetWelcomeScene,
+  adminForceSubScene,
+  searchServicesScene
 ]);
 bot.use(stage.middleware());
 
@@ -79,13 +85,9 @@ bot.action('menu_balance', async (ctx) => {
 });
 bot.action('menu_refill', async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
-  const { sendOrEdit } = require('../utils/ui');
-  const { Markup } = require('telegraf');
-  await sendOrEdit(ctx, 'Fitur Refill via Tombol sedang dalam pengembangan. Kirim /refill <Order_ID> untuk me-request refill sementara ini.', {
-      ...Markup.inlineKeyboard([
-          [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
-      ])
-  });
+  const RefillController = require('../controllers/refill.controller');
+  ctx.match = [null, '1']; // Simulate page 1
+  await RefillController.handleRefillHistory(ctx);
 });
 bot.action('back_to_menu_main', async (ctx) => {
   const StartController = require('../controllers/start.controller');
@@ -96,6 +98,12 @@ bot.action('menu_informasi_ketentuan', async (ctx) => {
   const StartController = require('../controllers/start.controller');
   await StartController.handleInformasiKetentuan(ctx);
 });
+
+const RefillController = require('../controllers/refill.controller');
+bot.action(/^refill_order_(\d+)$/, RefillController.handleRefillCallback);
+bot.action(/^menu_refill_history_(\d+)$/, RefillController.handleRefillHistory);
+bot.action(/^menu_services_(\d+)$/, UserController.handleServices);
+bot.action(/^search_services$/, (ctx) => { ctx.answerCbQuery().catch(()=>{}); return ctx.scene.enter('SEARCH_SERVICES_SCENE'); });
 
 bot.action(/^menu_order_history_(\d+)$/, UserController.handleOrderHistory);
 bot.action(/^order_detail_(\d+)$/, UserController.handleOrderDetail);
@@ -112,5 +120,31 @@ bot.action(/DEP_(APPROVE|REJECT)_.*/, adminMiddleware, AdminController.handleCal
 
 // Global Error Handling
 bot.catch(errorMiddleware);
+
+// Welcome message handler
+bot.on('new_chat_members', async (ctx) => {
+    try {
+        const AdminService = require('../services/admin.service');
+        const isEnabled = await AdminService.getSetting('welcome_enabled') === 'true';
+        if (!isEnabled) return;
+        
+        let template = await AdminService.getSetting('welcome_message');
+        if (!template) return;
+        
+        for (const member of ctx.message.new_chat_members) {
+            if (member.is_bot) continue;
+            
+            let message = template
+                .replace(/{first_name}/g, member.first_name || '')
+                .replace(/{last_name}/g, member.last_name || '')
+                .replace(/{username}/g, member.username ? '@' + member.username : '')
+                .replace(/{id}/g, member.id || '');
+                
+            await ctx.reply(message);
+        }
+    } catch(e) {
+        // Just silent ignore
+    }
+});
 
 module.exports = bot;

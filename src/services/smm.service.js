@@ -107,21 +107,24 @@ class SMMService {
         const platforms = new Set();
         
         servicesList.forEach(s => {
-          const cat = s.category || 'Lainnya';
+          let cat = s.category || 'Lainnya';
+          if (!cat || cat === 'undefined' || cat === 'null' || cat.trim() === '-' || cat.trim() === '') {
+              cat = 'Lainnya';
+          }
           
-          // Memisahkan platform dari kategori, misal "Instagram Followers" -> "Instagram"
           let platform = 'Lainnya';
-          if (cat.toLowerCase().includes('instagram')) platform = 'Instagram';
-          else if (cat.toLowerCase().includes('tiktok')) platform = 'TikTok';
-          else if (cat.toLowerCase().includes('youtube')) platform = 'YouTube';
-          else if (cat.toLowerCase().includes('facebook')) platform = 'Facebook';
-          else if (cat.toLowerCase().includes('telegram')) platform = 'Telegram';
-          else if (cat.toLowerCase().includes('twitter') || cat.toLowerCase().includes('x.com')) platform = 'Twitter';
-          else if (cat.toLowerCase().includes('shopee')) platform = 'Shopee';
-          else if (cat.toLowerCase().includes('tokopedia')) platform = 'Tokopedia';
-          else if (cat.toLowerCase().includes('spotify')) platform = 'Spotify';
-          else if (cat.toLowerCase().includes('website')) platform = 'Website Traffic';
-          else if (cat.toLowerCase().includes('discord')) platform = 'Discord';
+          const lowerCat = cat.toLowerCase();
+          if (lowerCat.includes('instagram')) platform = 'Instagram';
+          else if (lowerCat.includes('tiktok')) platform = 'TikTok';
+          else if (lowerCat.includes('youtube')) platform = 'Youtube';
+          else if (lowerCat.includes('telegram')) platform = 'Telegram';
+          else if (lowerCat.includes('facebook')) platform = 'Facebook';
+          else if (lowerCat.includes('twitter') || lowerCat.includes('x.com') || lowerCat.includes(' x ')) platform = 'Twitter/X';
+          else if (lowerCat.includes('threads')) platform = 'Threads';
+          else if (lowerCat.includes('spotify')) platform = 'Spotify';
+          else if (lowerCat.includes('website') || lowerCat.includes('traffic')) platform = 'Website Traffic';
+          else if (lowerCat.includes('whatsapp') || lowerCat.includes('wa')) platform = 'WhatsApp';
+          else if (lowerCat.includes('discord')) platform = 'Discord';
           
           if (!grouped[platform]) grouped[platform] = [];
           grouped[platform].push({
@@ -133,7 +136,8 @@ class SMMService {
             price: s.price || s.rate,
             min: s.min,
             max: s.max,
-            description: s.description || ''
+            description: s.description || '',
+            refill: s.refill || false
           });
           platforms.add(platform);
         });
@@ -142,6 +146,7 @@ class SMMService {
           platform: plat,
           services: grouped[plat]
         }));
+
         
         this.servicesCache = {
           raw: response,
@@ -166,11 +171,11 @@ class SMMService {
      const results = [];
      
      this.servicesCache.grouped.forEach(g => {
-        // Cari di nama layanan atau nama kategori
-        const matchedServices = g.services.filter(s => s.name.toLowerCase().includes(lowerKwd));
-        if (matchedServices.length > 0 || g.category.toLowerCase().includes(lowerKwd)) {
+        // Cari di nama layanan atau nama kategori string
+        const matchedServices = g.services.filter(s => s.name.toLowerCase().includes(lowerKwd) || s.category.toLowerCase().includes(lowerKwd));
+        if (matchedServices.length > 0 || g.platform.toLowerCase().includes(lowerKwd)) {
            results.push({
-              category: g.category,
+              platform: g.platform,
               services: matchedServices.length > 0 ? matchedServices : g.services
            });
         }

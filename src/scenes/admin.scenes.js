@@ -1,6 +1,23 @@
 const { Scenes, Markup } = require('telegraf');
 const UserService = require('../services/user.service');
 const AdminService = require('../services/admin.service');
+const db = require('../database');
+
+const resolveUser = async (input) => {
+    let identifier = input.trim().replace(/^@/, '');
+    
+    // Search by username first
+    let [rows] = await db.query('SELECT * FROM users WHERE username = ? COLLATE NOCASE', [identifier]);
+    if (rows.length > 0) return rows[0];
+    
+    // If not found, try ID (if it's numeric)
+    if (/^\d+$/.test(identifier)) {
+        let [rowsId] = await db.query('SELECT * FROM users WHERE telegram_id = ?', [identifier]);
+        if (rowsId.length > 0) return rowsId[0];
+    }
+    
+    return null;
+};
 
 const adminBroadcastScene = new Scenes.WizardScene(
   'ADMIN_BROADCAST_SCENE',
@@ -103,14 +120,24 @@ const adminBalanceScene = new Scenes.WizardScene('ADMIN_BALANCE_SCENE',
   async (ctx) => {
     const type = ctx.scene.state.type;
     ctx.wizard.state.action = type;
-    await ctx.reply(`Kirimkan Telegram ID User yang ingin di${type === 'add' ? 'TAMBAH' : 'KURANGI'} saldonya:\n(Ketik /cancel untuk batal)`);
+    await ctx.reply(`Masukkan Username (@username) atau Telegram ID pengguna yang ingin di${type === 'add' ? 'TAMBAH' : 'KURANGI'} saldonya:\n(Ketik /cancel untuk batal)`);
     return ctx.wizard.next();
   },
   async (ctx) => {
     if (ctx.message?.text === '/cancel' || !ctx.message) return ctx.scene.leave();
-    ctx.wizard.state.targetUserId = ctx.message.text.trim();
     
-    await ctx.reply('Masukkan jumlah nominal saldo (tanpa titik/koma):');
+    ctx.wizard.state.targetInput = ctx.message.text.trim();
+    
+    // Validate early
+    const user = await resolveUser(ctx.wizard.state.targetInput);
+    if (!user) {
+        await ctx.reply('❌ User tidak ditemukan dalam database. Pastikan Username atau Telegram ID benar.');
+        return ctx.scene.leave();
+    }
+    ctx.wizard.state.targetUserId = user.telegram_id;
+    ctx.wizard.state.targetUsername = user.username;
+    
+    await ctx.reply(`User ditemukan: ${user.username ? '@' + user.username : user.telegram_id}\nMasukkan jumlah nominal saldo (tanpa titik/koma):`);
     return ctx.wizard.next();
   },
   async (ctx) => {
@@ -144,21 +171,28 @@ const adminBanScene = new Scenes.WizardScene('ADMIN_BAN_SCENE',
   async (ctx) => {
     const type = ctx.scene.state.type;
     ctx.wizard.state.action = type;
-    await ctx.reply(`Kirimkan Telegram ID User yang ingin di${type === 'ban' ? 'BANNED' : 'UNBAN'}:\n(Ketik /cancel untuk batal)`);
+    await ctx.reply(`Masukkan Username (@username) atau Telegram ID pengguna yang ingin di${type === 'ban' ? 'BANNED' : 'UNBAN'}:\n(Ketik /cancel untuk batal)`);
     return ctx.wizard.next();
   },
   async (ctx) => {
     if (ctx.message?.text === '/cancel' || !ctx.message) return ctx.scene.leave();
-    const tgId = ctx.message.text.trim();
+    const targetInput = ctx.message.text.trim();
     const isBan = ctx.wizard.state.action === 'ban';
     
     try {
+      const user = await resolveUser(targetInput);
+      if (!user) {
+          await ctx.reply('❌ User tidak ditemukan.');
+          return ctx.scene.leave();
+      }
+      
+      const tgId = user.telegram_id;
       const success = await UserService.setBanStatus(tgId, isBan);
       if (success) {
         await AdminService.logAction(ctx.from.id, isBan ? 'BAN_USER' : 'UNBAN_USER', { target: tgId });
-        await ctx.reply(`✅ Status kelayakan user ${tgId} berhasil diubah (Banned: ${isBan}).`);
+        await ctx.reply(`✅ Status kelayakan user ${user.username ? '@'+user.username : tgId} berhasil diubah (Banned: ${isBan}).`);
       } else {
-         await ctx.reply('❌ User tidak ditemukan.');
+         await ctx.reply('❌ Gagal mengubah status user.');
       }
     } catch(e) {
       await ctx.reply(`❌ Gagal: ${e.message}`);
