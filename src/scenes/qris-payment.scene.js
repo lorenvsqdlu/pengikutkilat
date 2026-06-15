@@ -1,16 +1,18 @@
 const { Scenes, Markup } = require('telegraf');
 const QrisService = require('../services/qris.service');
+const { sendOrEdit } = require('../utils/ui');
 
 const qrisPaymentScene = new Scenes.WizardScene(
     'QRIS_PAYMENT_SCENE',
     async (ctx) => {
+        if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
         const qrisList = await QrisService.getActiveQris();
         if (qrisList.length === 0) {
-            await ctx.reply('❌ Maaf, saat ini belum ada QRIS yang aktif. Silakan gunakan metode Pembayaran Lain (Manual/Bank/Lainnya).');
+            await sendOrEdit(ctx, '❌ Maaf, saat ini belum ada QRIS yang aktif. Silakan gunakan metode Pembayaran Lain (Manual/Bank/Lainnya).');
             return ctx.scene.leave();
         }
 
-        await ctx.reply('📱 *PEMBAYARAN QRIS MANUAL*\n\nSilakan scan / upload salah satu QRIS berikut ke aplikasi e-Wallet atau m-Banking Anda.', { parse_mode: 'Markdown' });
+        await sendOrEdit(ctx, '📱 *PEMBAYARAN QRIS MANUAL*\n\nSilakan scan / upload salah satu QRIS berikut ke aplikasi e-Wallet atau m-Banking Anda.', { parse_mode: 'Markdown' });
 
         for (const qris of qrisList) {
             try {

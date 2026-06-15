@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const logger = require('../utils/logger');
+const { sendOrEdit } = require('../utils/ui');
 
 const formatRupiah = (angka) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(angka);
 
@@ -33,7 +34,8 @@ async function downloadFile(url, filename) {
 const manualDepositScene = new Scenes.WizardScene(
   'MANUAL_DEPOSIT_SCENE',
   async (ctx) => {
-    await ctx.reply('💰 *DEPOSIT MANUAL*\n\nMasukkan nominal transfer yang Anda kirim (contoh: 50000):', { parse_mode: 'Markdown' });
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await sendOrEdit(ctx, '💰 *DEPOSIT MANUAL*\n\nMasukkan nominal transfer yang Anda kirim (contoh: 50000):', { parse_mode: 'Markdown' });
     return ctx.wizard.next();
   },
   async (ctx) => {

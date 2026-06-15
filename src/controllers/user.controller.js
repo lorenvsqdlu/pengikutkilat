@@ -1,5 +1,7 @@
 const UserService = require('../services/user.service');
 const logger = require('../utils/logger');
+const { sendOrEdit } = require('../utils/ui');
+const { Markup } = require('telegraf');
 
 class UserController {
   static async handleProfile(ctx) {
@@ -8,7 +10,7 @@ class UserController {
       const user = await UserService.getUser(ctx.from.id);
       
       if (!user) {
-        return ctx.reply('Data pengguna tidak ditemukan. Silakan kirim perintah /start terlebih dahulu untuk mendaftar.');
+        return await sendOrEdit(ctx, 'Data pengguna tidak ditemukan. Silakan kirim perintah /start terlebih dahulu untuk mendaftar.');
       }
       
       const profileText = `
@@ -20,19 +22,25 @@ class UserController {
 *Terdaftar:* ${new Date(user.created_at).toLocaleString('id-ID')}
       `;
       
-      await ctx.reply(profileText.trim(), { parse_mode: 'Markdown' });
+      await sendOrEdit(ctx, profileText.trim(), { 
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
+        ])
+      });
     } catch (error) {
       logger.error('Error in UserController.handleProfile', error);
-      await ctx.reply('Terjadi kesalahan saat memuat profil Anda.');
+      await sendOrEdit(ctx, 'Terjadi kesalahan saat memuat profil Anda.');
     }
   }
 
   static async handleSaldo(ctx) {
     try {
+      if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
       const user = await UserService.getUser(ctx.from.id);
       
       if (!user) {
-        return ctx.reply('Data pengguna tidak ditemukan. Silakan kirim perintah /start terlebih dahulu untuk mendaftar.');
+        return await sendOrEdit(ctx, 'Data pengguna tidak ditemukan. Silakan kirim perintah /start terlebih dahulu untuk mendaftar.');
       }
       
       // Mengubah angka saldo jadi format Rupiah
@@ -44,15 +52,21 @@ class UserController {
       
       const saldoText = `💰 *INFO SALDO*\nSaat ini saldo Anda adalah: *${balanceStr}*`;
       
-      await ctx.reply(saldoText, { parse_mode: 'Markdown' });
+      await sendOrEdit(ctx, saldoText, { 
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
+        ])
+      });
     } catch (error) {
       logger.error('Error in UserController.handleSaldo', error);
-      await ctx.reply('Terjadi kesalahan saat memuat saldo Anda.');
+      await sendOrEdit(ctx, 'Terjadi kesalahan saat memuat saldo Anda.');
     }
   }
 
   static async handleServices(ctx) {
     try {
+      if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
       // Allow searching by parsing args if from text command
       let keyword = '';
       if (ctx.message && ctx.message.text) {
@@ -72,8 +86,12 @@ class UserController {
           grouped = smmService.getGroupedServices();
       }
       
+      const keyboard = Markup.inlineKeyboard([
+          [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
+      ]);
+
       if (!grouped || grouped.length === 0) {
-         return ctx.reply(queryStr ? `Pencarian "${queryStr}" tidak menemukan layanan apapun.` : 'Daftar layanan sedang kosong atau belum tersedia.');
+         return await sendOrEdit(ctx, queryStr ? `Pencarian "${queryStr}" tidak menemukan layanan apapun.` : 'Daftar layanan sedang kosong atau belum tersedia.', { ...keyboard });
       }
       
       const ProfitEngine = require('../services/profit.engine');
@@ -110,11 +128,11 @@ class UserController {
           resText += `\n💡 Tip: Coba cari dengan \`/services instagram\` atau \`/services follower\``;
       }
       
-      await ctx.reply(resText, { parse_mode: 'Markdown' });
+      await sendOrEdit(ctx, resText, { parse_mode: 'Markdown', ...keyboard });
       
     } catch (error) {
        logger.error('Error in handleServices', error);
-       await ctx.reply('Terjadi kesalahan saat memuat daftar layanan.');
+       await sendOrEdit(ctx, 'Terjadi kesalahan saat memuat daftar layanan.');
     }
   }
 }

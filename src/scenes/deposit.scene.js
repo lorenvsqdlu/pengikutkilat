@@ -3,6 +3,7 @@ const paymentService = require('../services/payment.service');
 const DepositService = require('../services/deposit.service');
 const BankService = require('../services/bank.service');
 const logger = require('../utils/logger');
+const { sendOrEdit } = require('../utils/ui');
 
 // Helper
 const formatRupiah = (angka) => {
@@ -21,6 +22,7 @@ const handleCancel = async (ctx) => {
 const depositScene = new Scenes.WizardScene(
   'DEPOSIT_SCENE',
   async (ctx) => {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     const banks = await BankService.getActiveBanks();
     let msg = '💰 *DEPOSIT SALDO*\n\nSilakan pilih metode deposit Anda:\n\n';
     msg += '1️⃣ *OTOMATIS (Sistem PG)* - Saldo langsung masuk\n(Minimal Rp 10.000, ada biaya per-transaksi)\n\n';
@@ -37,13 +39,13 @@ const depositScene = new Scenes.WizardScene(
     msg += '3️⃣ *QRIS MANUAL*\nScan QRIS milik kami (Pilih opsi Pembayaran QRIS untuk melihat QR).\n\n';
     msg += 'Setelah transfer Manual, pastikan klik tombol "Saya Sudah Transfer".';
 
-    await ctx.reply(msg, {
+    await sendOrEdit(ctx, msg, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
           [Markup.button.callback('⚡ Deposit Otomatis (QRIS dll)', 'DEP_AUTO')],
           [Markup.button.callback('🏦 Saya Sudah Transfer (Bank)', 'DEP_MANUAL')],
           [Markup.button.callback('📱 Pembayaran QRIS / Sudah Scan', 'DEP_QRIS')],
-          [Markup.button.callback('❌ Batal', 'CANCEL')]
+          [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
       ])
     });
     return ctx.wizard.next();
@@ -59,6 +61,13 @@ const depositScene = new Scenes.WizardScene(
           return;
       }
       
+      if (action === 'back_to_menu_main') {
+          // It's technically caught globally but just in case
+          const StartController = require('../controllers/start.controller');
+          await StartController.handleBackToMain(ctx);
+          return ctx.scene.leave();
+      }
+
       if (action === 'DEP_QRIS') {
           await ctx.answerCbQuery().catch(() => {});
           ctx.scene.enter('QRIS_PAYMENT_SCENE');
@@ -67,7 +76,7 @@ const depositScene = new Scenes.WizardScene(
       
       if (action === 'DEP_AUTO') {
           await ctx.answerCbQuery().catch(() => {});
-          await ctx.reply('Masukkan nominal deposit otomatis yang Anda inginkan (Min: Rp 10.000).\nContoh: 50000\n\nKetik /cancel untuk membatalkan.');
+          await sendOrEdit(ctx, 'Masukkan nominal deposit otomatis yang Anda inginkan (Min: Rp 10.000).\nContoh: 50000\n\nKetik /cancel untuk membatalkan.');
           ctx.wizard.state.mode = 'AUTO';
           return ctx.wizard.next();
       }

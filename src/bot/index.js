@@ -79,8 +79,19 @@ bot.action('menu_balance', async (ctx) => {
 });
 bot.action('menu_refill', async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply('Fitur Refill via Tombol sedang dalam pengembangan. Kirim /refill <Order_ID> untuk me-request refill sementara ini.');
+  const { sendOrEdit } = require('../utils/ui');
+  const { Markup } = require('telegraf');
+  await sendOrEdit(ctx, 'Fitur Refill via Tombol sedang dalam pengembangan. Kirim /refill <Order_ID> untuk me-request refill sementara ini.', {
+      ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
+      ])
+  });
 });
+bot.action('back_to_menu_main', async (ctx) => {
+  const StartController = require('../controllers/start.controller');
+  await StartController.handleBackToMain(ctx);
+});
+
 
 // Admin Routes Hook
 bot.command('admin', adminMiddleware, AdminController.handleAdminMenu);

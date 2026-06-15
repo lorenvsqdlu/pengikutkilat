@@ -4,6 +4,7 @@ const UserService = require('../services/user.service');
 const OrderService = require('../services/order.service');
 const ProfitEngine = require('../services/profit.engine');
 const config = require('../config');
+const { sendOrEdit } = require('../utils/ui');
 
 // Helper untuk format Rupiah
 const formatRupiah = (angka) => {
@@ -72,13 +73,13 @@ const orderScene = new Scenes.WizardScene(
     
     if (!smmService.servicesCache) {
       // Tunggu cache diisi oleh worker yang berjalan di background
-      await ctx.reply('⏳ Sedang memuat layanan SMM, silakan coba beberapa saat lagi.');
+      await sendOrEdit(ctx, '⏳ Sedang memuat layanan SMM, silakan coba beberapa saat lagi.');
       return ctx.scene.leave();
     }
 
     const groupedServices = smmService.getGroupedServices();
     if (groupedServices.length === 0) {
-      await ctx.reply('❌ Tidak ada layanan yang tersedia saat ini.');
+      await sendOrEdit(ctx, '❌ Tidak ada layanan yang tersedia saat ini.');
       return ctx.scene.leave();
     }
 
@@ -97,7 +98,7 @@ const orderScene = new Scenes.WizardScene(
     if (row.length > 0) buttons.push(row);
     buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
     
-    await ctx.reply('🛍️ *Pilih Platform*', {
+    await sendOrEdit(ctx, '🛍️ *Pilih Platform*', {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard(buttons)
     });
@@ -121,7 +122,7 @@ const orderScene = new Scenes.WizardScene(
       const platformData = groupedServices.find(g => g.platform === platformName);
       
       if (!platformData || platformData.services.length === 0) {
-          await ctx.reply('Layanan untuk platform ini tidak tersedia.');
+          await sendOrEdit(ctx, 'Layanan untuk platform ini tidak tersedia.');
           return ctx.scene.leave();
       }
 
@@ -142,9 +143,9 @@ const orderScene = new Scenes.WizardScene(
 
           buttons.push([Markup.button.callback(cat.substring(0, 40), callbackData)]);
       });
-      buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
+      buttons.push([Markup.button.callback('🔙 Kembali', 'BACK_TO_PLATS'), Markup.button.callback('❌ Batal', 'CANCEL')]);
 
-      await ctx.reply(`Pilih Kategori ${platformName}:`, {
+      await sendOrEdit(ctx, `Pilih Kategori ${platformName}:`, {
         ...Markup.inlineKeyboard(buttons)
       });
       return ctx.wizard.next();
@@ -158,18 +159,22 @@ const orderScene = new Scenes.WizardScene(
     
     const action = ctx.callbackQuery.data;
     if (action === 'CANCEL') return handleCancel(ctx);
+    if (action === 'BACK_TO_PLATS') {
+      await ctx.answerCbQuery().catch(() => {});
+      return ctx.scene.reenter();
+    }
     
     if (action.startsWith('CAT_')) {
         await ctx.answerCbQuery().catch(() => {});
         const selectedCategory = ctx.wizard.state.catMap[action];
         if (!selectedCategory) {
-            await ctx.reply('Kategori tidak valid atau sesi kadaluwarsa.');
+            await sendOrEdit(ctx, 'Kategori tidak valid atau sesi kadaluwarsa.');
             return ctx.scene.leave();
         }
 
         ctx.wizard.state.order.category = selectedCategory;
         
-        const loadingMessage = await ctx.reply('⏳ Mengambil daftar layanan...');
+        await sendOrEdit(ctx, '⏳ Mengambil daftar layanan...');
         
         try {
             const groupedServices = smmService.getGroupedServices();
@@ -182,8 +187,7 @@ const orderScene = new Scenes.WizardScene(
                 .slice(0, 10); // Max 10 layanan agar inline keyboard tidak error
             
             if (filteredServices.length === 0) {
-                await ctx.telegram.deleteMessage(ctx.chat.id, loadingMessage.message_id);
-                await ctx.reply('Maaf, layanan tidak tersedia saat ini.');
+                await sendOrEdit(ctx, 'Maaf, layanan tidak tersedia saat ini.');
                 return ctx.scene.leave();
             }
 
@@ -198,15 +202,13 @@ const orderScene = new Scenes.WizardScene(
             
             buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
 
-            await ctx.telegram.deleteMessage(ctx.chat.id, loadingMessage.message_id);
-            await ctx.reply(`Layanan dalam ${selectedCategory}:`, {
+            await sendOrEdit(ctx, `Layanan dalam ${selectedCategory}:`, {
                 ...Markup.inlineKeyboard(buttons)
             });
             return ctx.wizard.next();
 
         } catch (error) {
-            if (loadingMessage) await ctx.telegram.deleteMessage(ctx.chat.id, loadingMessage.message_id);
-            await ctx.reply('Terjadi kesalahan saat mengambil layanan SMM.');
+            await sendOrEdit(ctx, 'Terjadi kesalahan saat mengambil layanan SMM.');
             return ctx.scene.leave();
         }
     }
@@ -226,7 +228,7 @@ const orderScene = new Scenes.WizardScene(
       const selectedService = ctx.wizard.state.availableServices.find(s => s.service == serviceId);
       
       if (!selectedService) {
-        await ctx.reply('Layanan tidak valid.');
+        await sendOrEdit(ctx, 'Layanan tidak valid.');
         return ctx.scene.leave();
       }
       
@@ -236,7 +238,7 @@ const orderScene = new Scenes.WizardScene(
       
       let promptText = `Layanan terpilih: *${selectedService.name}*${typeDesc}\nMin: ${selectedService.min} | Max: ${selectedService.max}\n\nMasukkan target (Link/Username):`;
       
-      await ctx.reply(promptText, {
+      await sendOrEdit(ctx, promptText, {
         parse_mode: 'Markdown'
       });
       return ctx.wizard.next();

@@ -1,5 +1,7 @@
 const DepositService = require('../services/deposit.service');
 const logger = require('../utils/logger');
+const { sendOrEdit } = require('../utils/ui');
+const { Markup } = require('telegraf');
 
 // Helper
 const formatRupiah = (angka) => {
@@ -15,8 +17,12 @@ class DepositController {
     try {
       const deposits = await DepositService.getDepositHistory(ctx.from.id, 5); // ambil 5 terakhir
       
+      const keyboard = Markup.inlineKeyboard([
+          [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
+      ]);
+
       if (!deposits || deposits.length === 0) {
-        return ctx.reply('Anda belum memiliki riwayat deposit.');
+        return await sendOrEdit(ctx, 'Anda belum memiliki riwayat deposit.', { ...keyboard });
       }
       
       let text = `📜 *RIWAYAT 5 DEPOSIT TERAKHIR*\n━━━━━━━━━━━━━━━━━\n\n`;
@@ -34,11 +40,11 @@ class DepositController {
          text += `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n`;
       });
 
-      await ctx.reply(text, { parse_mode: 'Markdown' });
+      await sendOrEdit(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 
     } catch (error) {
       logger.error('DepositController.handleHistory Error', error);
-      await ctx.reply('Terjadi kesalahan saat mengambil riwayat deposit.');
+      await sendOrEdit(ctx, 'Terjadi kesalahan saat mengambil riwayat deposit.');
     }
   }
 }
