@@ -90,11 +90,44 @@ class AdminController {
          return ctx.reply(`❌ Gagal mengatur margin: ${err.message}`);
       }
   }
+  
+  static async handleApprove(ctx) {
+      const parts = ctx.message.text.split(' ');
+      const refId = parts[1];
+      if (!refId) return ctx.reply('Format: /approve <ref_id>');
+      
+      const deposit = await DepositService.getDepositByRef(refId);
+      if (!deposit || deposit.status !== 'Pending') {
+          return ctx.reply('❌ Deposit tidak ditemukan atau sudah diproses.');
+      }
+      const updated = await DepositService.updateDepositStatus(refId, 'Approved', ctx.from.id);
+      if (!updated) {
+          return ctx.reply('❌ Deposit sudah diproses oleh admin lain.');
+      }
+      await UserService.updateBalance(deposit.user_id, deposit.amount);
+      await AdminService.logAction(ctx.from.id, 'APPROVE_DEPOSIT', { reference_id: refId, amount: deposit.amount });
+      
+      await ctx.reply(`✅ *DEPOSIT APPROVED*\n\nRef: \`${refId}\`\nUser: ${deposit.user_id}\nNominal: *${formatRupiah(deposit.amount)}*`, {parse_mode: 'Markdown'});
+      
+      try {
+          await ctx.telegram.sendMessage(deposit.user_id, `✅ *DEPOSIT BERHASIL*\n\nRef: \`${refId}\`\nNominal: *${formatRupiah(deposit.amount)}*\n\nSaldo otomatis ditambahkan ke akun Anda.`, {parse_mode: 'Markdown'});
+      } catch(e){}
+  }
+  
+  static async handleReject(ctx) {
+      const parts = ctx.message.text.split(' ');
+      const refId = parts[1];
+      if (!refId) return ctx.reply('Format: /reject <ref_id>');
+      return ctx.scene.enter('REJECT_DEPOSIT_SCENE', { reference_id: refId });
+  }
 
   static async handleAdminMenu(ctx) {
     const menuText = `*MENU ADMIN*\nSilakan pilih menu di bawah ini:`;
     const buttons = [
-      [Markup.button.callback('📊 Statistik Web', 'ADMIN_STATS')],
+      [
+        Markup.button.callback('⏳ Deposit Pending', 'ADMIN_DEPOSIT_PENDING'),
+        Markup.button.callback('📊 Statistik Web', 'ADMIN_STATS')
+      ],
       [Markup.button.callback('📢 Broadcast Notif', 'ADMIN_BROADCAST_MENU')],
       [
         Markup.button.callback('➕ Saldo User', 'ADMIN_BAL_ADD'),
@@ -124,6 +157,25 @@ class AdminController {
      await ctx.answerCbQuery().catch(() => {});
      
      if (action === 'ADMIN_MENU') return AdminController.handleAdminMenu(ctx);
+     
+     if (action === 'ADMIN_DEPOSIT_PENDING') {
+         const pending = await db.query('SELECT * FROM deposits WHERE status = ? ORDER BY created_at ASC LIMIT 10', ['Pending']);
+         const deposits = pending[0];
+         if (deposits.length === 0) {
+             return ctx.editMessageText('✅ Tidak ada deposit pending saat ini.', {
+                 ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_MENU')]])
+             });
+         }
+         let txt = `⏳ *10 DEPOSIT PENDING TERATAS*\n\n`;
+         for (const dep of deposits) {
+             txt += `Ref: \`${dep.reference_id}\`\nUser: ${dep.user_id}\nNominal: Rp ${dep.amount}\nMetode: ${dep.payment_method}\nWaktu: ${dep.created_at}\n\n`;
+         }
+         txt += `_Gunakan /approve <ref_id> atau /reject <ref_id>_`;
+         return ctx.editMessageText(txt, {
+             parse_mode: 'Markdown',
+             ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_MENU')]])
+         });
+     }
      
      if (action === 'ADMIN_STATS') {
        const stats = await AdminService.getStats();

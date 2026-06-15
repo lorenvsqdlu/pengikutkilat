@@ -99,7 +99,7 @@ const depositScene = new Scenes.WizardScene(
 
         ctx.wizard.state.amount = amount;
         
-        await ctx.reply(`Anda akan melakukan deposit otomatis sebesar *${formatRupiah(amount)}*.\nPilih metode pembayaran:`, {
+        await sendOrEdit(ctx, `Anda akan melakukan deposit otomatis sebesar *${formatRupiah(amount)}*.\nPilih metode pembayaran:`, {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([
             [Markup.button.callback('✅ Konfirmasi Pembayaran QRIS', 'CONFIRM_DEPOSIT')],

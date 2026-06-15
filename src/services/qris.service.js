@@ -1,11 +1,9 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const db = require('../database');
 
 class QrisService {
     static async getActiveQris() {
-        return prisma.qris_accounts.findMany({
-            where: { is_active: true }
-        });
+        const [rows] = await db.query('SELECT * FROM qris_accounts WHERE is_active = 1');
+        return rows || [];
     }
 }
 

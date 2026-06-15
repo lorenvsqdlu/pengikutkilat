@@ -32,9 +32,8 @@ app.use(express.json());
 const path = require('path');
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// Mount Admin Web Dashboard (Disabled per configuration)
-// const adminApp = require('./admin/app');
-// app.use('/admin', adminApp);
+// Mount Admin Web Dashboard (Deleted)
+// No web admin dashboard. All manage by telegram bot.
 
 app.get('/', (req, res) => {
   res.send('Telegram Bot Service is Running!');
@@ -61,16 +60,21 @@ app.listen(config.PORT, async () => {
   await smmService.testConnection();
 
   if (config.BOT_TOKEN) {
+    let isWorkersStarted = false;
+
     // Launching the bot via long-polling with retry mechanism for zero-downtime deploys
     const launchBot = async (retries = 5) => {
       try {
-        // Base cron
-        initServicesCron();
-        
-        // Background Queue Workers
-        startOrderWorker(bot);
-        startStatusWorker(bot);
-        startRefillWorker(bot);
+        if (!isWorkersStarted) {
+          // Base cron
+          initServicesCron();
+          
+          // Background Queue Workers
+          startOrderWorker(bot);
+          startStatusWorker(bot);
+          startRefillWorker(bot);
+          isWorkersStarted = true;
+        }
 
         bot.launch({ dropPendingUpdates: true }).then(() => {
           logger.info('Telegram Bot successfully launched via long-polling.');

@@ -129,6 +129,14 @@ async function initDatabase() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS qris_accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        qris_name VARCHAR(100) NOT NULL,
+        qris_image TEXT NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      
       CREATE TABLE IF NOT EXISTS admin_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         admin_id BIGINT NOT NULL,

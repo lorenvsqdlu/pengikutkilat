@@ -183,7 +183,9 @@ const rejectDepositScene = new Scenes.WizardScene(
         }
         await AdminService.logAction(ctx.from.id, 'REJECT_DEPOSIT', { reference_id: refId, reason });
         
-        await ctx.reply(`✅ Deposit ${refId} berhasil direject.`);
+        await ctx.reply(`✅ Deposit ${refId} berhasil direject.`, {
+             ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali ke Admin', 'ADMIN_MENU')]])
+        });
         
         try {
             await ctx.telegram.sendMessage(deposit.user_id, `❌ *DEPOSIT DITOLAK*\n\nRef: \`${refId}\`\nNominal: ${formatRupiah(deposit.amount)}\nAlasan: ${reason}`, { parse_mode: 'Markdown' });

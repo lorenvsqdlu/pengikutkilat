@@ -97,6 +97,8 @@ bot.action('back_to_menu_main', async (ctx) => {
 bot.command('admin', adminMiddleware, AdminController.handleAdminMenu);
 bot.command('profit', adminMiddleware, AdminController.handleProfit);
 bot.command('margin', adminMiddleware, AdminController.handleMargin);
+bot.command('approve', adminMiddleware, AdminController.handleApprove);
+bot.command('reject', adminMiddleware, AdminController.handleReject);
 bot.action(/ADMIN_.*/, adminMiddleware, AdminController.handleCallback);
 bot.action(/DEP_(APPROVE|REJECT)_.*/, adminMiddleware, AdminController.handleCallback);
 
