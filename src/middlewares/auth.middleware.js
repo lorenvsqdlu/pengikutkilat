@@ -16,7 +16,10 @@ module.exports = async (ctx, next) => {
     }
     
     // Check Force Subscribe if not admin
-    if (ctx.from.id.toString() !== require('../config').ADMIN_ID.toString()) {
+    const adminIds = require('../config').ADMIN_IDS ? require('../config').ADMIN_IDS.split(',').map(id => id.trim()) : [];
+    const isAdmin = adminIds.includes(ctx.from.id.toString());
+    
+    if (!isAdmin) {
         const isFSActive = await AdminService.getSetting('force_subscribe_enabled') === 'true';
         if (isFSActive) {
             const channel = await AdminService.getSetting('force_subscribe_channel');

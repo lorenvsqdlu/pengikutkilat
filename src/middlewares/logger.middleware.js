@@ -5,10 +5,17 @@ const logger = require('../utils/logger');
  */
 module.exports = async (ctx, next) => {
   const start = new Date();
-  logger.info(`Received update type: ${ctx.updateType}`);
+  
+  if (ctx.updateType === 'message') {
+      logger.info(`[MESSAGE] User ${ctx.from?.id} : ${ctx.message?.text || '<non-text message>'}`);
+  } else if (ctx.updateType === 'callback_query') {
+      logger.info(`[CALLBACK] User ${ctx.from?.id} : ${ctx.callbackQuery?.data}`);
+  } else {
+      logger.info(`[UPDATE] Type: ${ctx.updateType} from User ${ctx.from?.id || 'Unknown'}`);
+  }
   
   await next();
   
   const ms = new Date() - start;
-  logger.info(`Processed update in ${ms}ms`);
+  logger.info(`[PROCESSED] ${ctx.updateType} in ${ms}ms`);
 };

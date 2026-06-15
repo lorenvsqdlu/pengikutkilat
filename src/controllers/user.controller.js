@@ -44,7 +44,8 @@ class UserController {
         ...Markup.inlineKeyboard(buttons)
       });
     } catch (e) {
-      logger.error('handleOrderHistory error:', e);
+      logger.error(e.message);
+      logger.error(e.stack);
       await sendOrEdit(ctx, 'Gagal memuat riwayat pesanan.');
     }
   }
@@ -81,7 +82,8 @@ class UserController {
           ...Markup.inlineKeyboard(buttons)
        });
      } catch (e) {
-       logger.error('handleOrderDetail error:', e);
+       logger.error(e.message);
+       logger.error(e.stack);
      }
   }
 
@@ -164,7 +166,8 @@ class UserController {
        });
        await ctx.answerCbQuery('Status pesanan berhasil diperbarui!').catch(() => {});
      } catch (e) {
-       logger.error('handleRefreshOrder error:', e);
+       logger.error(e.message);
+       logger.error(e.stack);
        await ctx.answerCbQuery('Gagal refresh, coba lagi nanti.', { show_alert: true }).catch(() => {});
      }
   }
@@ -217,7 +220,8 @@ class UserController {
         ])
       });
     } catch (error) {
-      logger.error('Error in UserController.handleProfile', error);
+      logger.error(error.message);
+      logger.error(error.stack);
       await sendOrEdit(ctx, 'Terjadi kesalahan saat memuat profil Anda.');
     }
   }
@@ -247,7 +251,8 @@ class UserController {
         ])
       });
     } catch (error) {
-      logger.error('Error in UserController.handleSaldo', error);
+      logger.error(error.message);
+      logger.error(error.stack);
       await sendOrEdit(ctx, 'Terjadi kesalahan saat memuat saldo Anda.');
     }
   }
@@ -332,7 +337,8 @@ class UserController {
       });
       
     } catch (error) {
-       logger.error('Error in handleServices', error);
+       logger.error(error.message);
+       logger.error(error.stack);
        await sendOrEdit(ctx, 'Terjadi kesalahan saat memuat daftar layanan.');
     }
   }

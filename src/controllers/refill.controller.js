@@ -52,7 +52,8 @@ class RefillController {
              });
          }
      } catch (error) {
-         logger.error('Error in handleRefillCallback', error);
+         logger.error(error.message);
+         logger.error(error.stack);
          await ctx.answerCbQuery('Terjadi kesalahan sistem.', { show_alert: true });
      }
   }
@@ -100,7 +101,8 @@ class RefillController {
           }).catch(()=>{});
 
       } catch (e) {
-          logger.error('handleRefillHistory error', e);
+          logger.error(e.message);
+          logger.error(e.stack);
       }
   }
   static async handleRefill(ctx) {
@@ -158,7 +160,8 @@ class RefillController {
       }
 
     } catch (error) {
-      logger.error('Error in handleRefill', error);
+      logger.error(error.message);
+      logger.error(error.stack);
       await ctx.reply('Terjadi kesalahan sistem.');
     }
   }
