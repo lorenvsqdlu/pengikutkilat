@@ -27,6 +27,12 @@ ${err.stack || err}
   logger.error(errorMsg);
   
   try {
+    if (ctx.scene && ctx.scene.current) {
+        await ctx.scene.leave().catch(() => {});
+    }
+  } catch (e) {}
+
+  try {
     if (ctx.reply && ctx.updateType === 'message') {
       await ctx.reply('Terjadi kesalahan tidak terduga pada sistem kami. Silakan coba lagi nanti. Hubungi admin jika error berlanjut.');
     } else if (ctx.answerCbQuery && ctx.updateType === 'callback_query') {
