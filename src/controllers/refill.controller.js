@@ -103,6 +103,7 @@ class RefillController {
           logger.error('handleRefillHistory error', e);
       }
   }
+  static async handleRefill(ctx) {
     try {
       const parts = ctx.message.text.split(' ');
       if (parts.length < 2) {
