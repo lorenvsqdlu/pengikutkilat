@@ -52,7 +52,7 @@ const adminQrisScene = new Scenes.WizardScene(
             const filename = `qris_${Date.now()}_${ctx.from.id}.jpg`;
             const localPath = await downloadFile(fileUrl.href, filename);
             
-            await db.query(`INSERT INTO qris_accounts (qris_name, qris_image, is_active) VALUES (?, ?, 1)`, [ctx.scene.state.qrisName, localPath]);
+            await db.query(`INSERT INTO qris_accounts (qris_name, qris_image, is_active) VALUES (?, ?, TRUE)`, [ctx.scene.state.qrisName, localPath]);
             
             await ctx.reply(`✅ *QRIS Berhasil Ditambahkan!*\n\nNama: ${ctx.scene.state.qrisName}\nStatus: Aktif\n\nMenggunakan gambar yang Anda kirim. User sekarang dapat melakukan pembayaran melalui QRIS ini.`, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('Kembali ke Admin Menu', 'ADMIN_MENU')]]) });
         } catch(e) {

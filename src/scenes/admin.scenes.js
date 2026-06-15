@@ -7,7 +7,7 @@ const resolveUser = async (input) => {
     let identifier = input.trim().replace(/^@/, '');
     
     // Search by username first
-    let [rows] = await db.query('SELECT * FROM users WHERE username = ? COLLATE NOCASE', [identifier]);
+    let [rows] = await db.query('SELECT * FROM users WHERE username ILIKE ?', [identifier]);
     if (rows.length > 0) return rows[0];
     
     // If not found, try ID (if it's numeric)

@@ -40,7 +40,7 @@ class UserService {
    * Set user ban status
    */
   static async setBanStatus(telegramId, isBanned) {
-    const [result] = await db.query('UPDATE users SET is_banned = ? WHERE telegram_id = ?', [isBanned ? 1 : 0, telegramId]);
+    const [result] = await db.query('UPDATE users SET is_banned = ? WHERE telegram_id = ?', [!!isBanned, telegramId]);
     return result.affectedRows > 0;
   }
 

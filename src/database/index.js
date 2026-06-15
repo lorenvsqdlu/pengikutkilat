@@ -165,7 +165,7 @@ class DatabaseParams {
   // Transform SQLite '?' to Postgres '$1, $2'
   replaceQuestionMarks(sql) {
     let index = 1;
-    return sql.replace(/\?/g, () => \`$\${index++}\`);
+    return sql.replace(/\?/g, () => `$${index++}`);
   }
 
   async query(sql, params = []) {
