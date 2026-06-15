@@ -39,8 +39,14 @@ app.get('/', (req, res) => {
   res.send('Telegram Bot Service is Running!');
 });
 
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: "ok" });
+app.get('/health', async (req, res) => {
+  try {
+    const db = require('./database/index');
+    await db.pool.query('SELECT 1');
+    res.status(200).json({ status: "ok", database: "connected" });
+  } catch (err) {
+    res.status(500).json({ status: "error", database: "disconnected" });
+  }
 });
 
 // Start Server & Bot

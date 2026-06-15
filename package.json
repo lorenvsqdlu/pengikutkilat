@@ -13,8 +13,7 @@
     "express": "^4.18.2",
     "multer": "*",
     "node-cron": "^4.2.1",
-    "sqlite": "^5.1.1",
-    "sqlite3": "^5.1.7",
+    "pg": "^8.21.0",
     "telegraf": "^4.15.0",
     "winston": "^3.11.0"
   }

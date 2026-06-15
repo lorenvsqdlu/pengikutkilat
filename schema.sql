@@ -1,101 +1,119 @@
+-- PostgreSQL Schema Migration
+
 CREATE TABLE IF NOT EXISTS users (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  telegram_id BIGINT NOT NULL UNIQUE,
-  username VARCHAR(255),
-  fullname VARCHAR(255),
-  balance DECIMAL(15,2) DEFAULT 0,
-  is_banned BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id SERIAL PRIMARY KEY,
+    telegram_id BIGINT UNIQUE,
+    username VARCHAR(100),
+    fullname VARCHAR(255),
+    balance BIGINT DEFAULT 0,
+    lock_until TIMESTAMP NULL,
+    is_banned BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS orders (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT NOT NULL, -- references telegram_id
-  service_id VARCHAR(50) NOT NULL,
-  api_order_id VARCHAR(50),
-  target VARCHAR(255) NOT NULL,
-  quantity INT NOT NULL,
-  price DECIMAL(15,2) NOT NULL,
-  cost_price DECIMAL(15,2) DEFAULT 0,
-  sell_price DECIMAL(15,2) DEFAULT 0,
-  profit DECIMAL(15,2) DEFAULT 0,
-  category VARCHAR(100) NULL,
-  status VARCHAR(50) DEFAULT 'Pending',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT,
+    service_id INTEGER,
+    service_name VARCHAR(255),
+    api_order_id VARCHAR(50),
+    category VARCHAR(100),
+    target TEXT,
+    quantity INTEGER,
+    price BIGINT DEFAULT 0,
+    cost_price BIGINT DEFAULT 0,
+    sell_price BIGINT DEFAULT 0,
+    profit BIGINT DEFAULT 0,
+    start_count INTEGER DEFAULT 0,
+    remains INTEGER DEFAULT 0,
+    status VARCHAR(30) DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS refills (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER,
+    refill_id VARCHAR(50),
+    status VARCHAR(30),
+    user_id BIGINT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS category_margins (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  category_name VARCHAR(100) NOT NULL UNIQUE,
-  margin_type VARCHAR(20) DEFAULT 'percent',
-  margin_value DECIMAL(15,2) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id SERIAL PRIMARY KEY,
+    category_name VARCHAR(100) UNIQUE,
+    margin_type VARCHAR(20) DEFAULT 'percent',
+    margin_value INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS deposits (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT NOT NULL, -- references telegram_id
-  reference_id VARCHAR(100) NOT NULL UNIQUE,
-  amount DECIMAL(15,2) NOT NULL,
-  fee DECIMAL(15,2) DEFAULT 0,
-  status VARCHAR(50) DEFAULT 'Pending',
-  payment_method VARCHAR(50),
-  pay_url TEXT,
-  proof_image TEXT,
-  admin_id BIGINT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  paid_at TIMESTAMP NULL,
-  approved_at TIMESTAMP NULL,
-  FOREIGN KEY (user_id) REFERENCES users(telegram_id)
-);
-
-CREATE TABLE IF NOT EXISTS banks (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  bank_name VARCHAR(100) NOT NULL,
-  account_number VARCHAR(100) NOT NULL,
-  account_name VARCHAR(100) NOT NULL,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS orders_queue (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER,
+    user_id BIGINT,
+    service_id INTEGER,
+    target TEXT,
+    quantity INTEGER,
+    price BIGINT,
+    base_price DECIMAL(15,8),
+    category VARCHAR(100),
+    status VARCHAR(20) DEFAULT 'pending',
+    retry_count INTEGER DEFAULT 0,
+    smm_payload TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS settings (
-  setting_key VARCHAR(50) PRIMARY KEY,
-  setting_value TEXT NOT NULL
+    setting_key VARCHAR(100) PRIMARY KEY,
+    setting_value TEXT
 );
 
-CREATE TABLE IF NOT EXISTS admin_logs (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  admin_id BIGINT NOT NULL,
-  action VARCHAR(255) NOT NULL,
-  details TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS deposits (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    reference_id VARCHAR(100) NOT NULL UNIQUE,
+    amount DECIMAL(15,2) NOT NULL,
+    fee DECIMAL(15,2) DEFAULT 0,
+    status VARCHAR(50) DEFAULT 'Pending',
+    payment_method VARCHAR(50),
+    pay_url TEXT,
+    proof_image TEXT,
+    admin_id BIGINT NULL,
+    approved_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    paid_at TIMESTAMP NULL
+);
+
+CREATE TABLE IF NOT EXISTS banks (
+    id SERIAL PRIMARY KEY,
+    bank_name VARCHAR(100) NOT NULL,
+    account_number VARCHAR(100) NOT NULL,
+    account_name VARCHAR(100) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS refunds (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  order_id INT NOT NULL,
-  user_id BIGINT NOT NULL,
-  amount DECIMAL(15,2) NOT NULL,
-  reason VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (order_id) REFERENCES orders(id),
-  FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER NOT NULL,
+    user_id BIGINT NOT NULL,
+    amount DECIMAL(15,2) NOT NULL,
+    reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS qris_accounts (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  qris_name VARCHAR(100) NOT NULL,
-  qris_image TEXT NOT NULL,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id SERIAL PRIMARY KEY,
+    qris_name VARCHAR(100) NOT NULL,
+    qris_image TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS admins (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  username VARCHAR(50) NOT NULL UNIQUE,
-  password VARCHAR(255) NOT NULL,
-  role VARCHAR(50) DEFAULT 'admin',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS admin_logs (
+    id SERIAL PRIMARY KEY,
+    admin_id BIGINT NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    details TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-

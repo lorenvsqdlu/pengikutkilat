@@ -60,7 +60,7 @@ class ProfitEngine {
   }
 
   static async getDailyProfit() {
-    const [rows] = await db.query(`SELECT SUM(profit) as total FROM orders WHERE (status = 'completed' OR status = 'Completed') AND DATE(created_at) = DATE('now', 'localtime')`);
+    const [rows] = await db.query(`SELECT SUM(profit) as total FROM orders WHERE (status = 'completed' OR status = 'Completed') AND DATE(created_at) = CURRENT_DATE`);
     return rows[0].total || 0;
   }
 
