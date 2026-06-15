@@ -92,6 +92,14 @@ bot.action('back_to_menu_main', async (ctx) => {
   await StartController.handleBackToMain(ctx);
 });
 
+bot.action('menu_informasi_ketentuan', async (ctx) => {
+  const StartController = require('../controllers/start.controller');
+  await StartController.handleInformasiKetentuan(ctx);
+});
+
+bot.action(/^menu_order_history_(\d+)$/, UserController.handleOrderHistory);
+bot.action(/^order_detail_(\d+)$/, UserController.handleOrderDetail);
+bot.action(/^refresh_order_(\d+)$/, UserController.handleRefreshOrder);
 
 // Admin Routes Hook
 bot.command('admin', adminMiddleware, AdminController.handleAdminMenu);

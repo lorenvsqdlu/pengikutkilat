@@ -7,8 +7,9 @@ class StartController {
     return Markup.inlineKeyboard([
       [Markup.button.callback('📦 Order', 'menu_order'), Markup.button.callback('🛒 Services', 'menu_services')],
       [Markup.button.callback('💰 Deposit', 'menu_deposit'), Markup.button.callback('📜 Riwayat Deposit', 'menu_history')],
-      [Markup.button.callback('👤 Profile', 'menu_profile'), Markup.button.callback('💳 Saldo', 'menu_balance')],
-      [Markup.button.callback('♻️ Refill', 'menu_refill')]
+      [Markup.button.callback('📜 Riwayat Pesanan', 'menu_order_history_1'), Markup.button.callback('👤 Profile', 'menu_profile')],
+      [Markup.button.callback('💳 Saldo', 'menu_balance'), Markup.button.callback('♻️ Refill', 'menu_refill')],
+      [Markup.button.callback('ℹ️ Informasi & Ketentuan', 'menu_informasi_ketentuan')]
     ]);
   }
 
@@ -52,6 +53,21 @@ class StartController {
     } catch (error) {
       logger.error('Error in handleBackToMain', error);
       await ctx.reply('Terjadi kesalahan.');
+    }
+  }
+  static async handleInformasiKetentuan(ctx) {
+    try {
+      if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+      const { INFO_KETENTUAN } = require('../utils/messages');
+      await ctx.editMessageText(INFO_KETENTUAN, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]
+        ])
+      });
+    } catch (e) {
+      logger.error('Error in handleInformasiKetentuan', e);
+      await ctx.reply('Terjadi kesalahan saat memuat informasi.');
     }
   }
 }

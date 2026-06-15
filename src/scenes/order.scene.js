@@ -400,6 +400,7 @@ const orderScene = new Scenes.WizardScene(
           const orderId = await OrderService.createOrder({
             user_id: user.telegram_id,
             service_id: orderState.selectedService.service,
+            service_name: orderState.selectedService.name,
             api_order_id: null,
             target: orderState.target,
             quantity: orderState.quantity,

@@ -14,7 +14,7 @@
     "multer": "*",
     "node-cron": "^4.2.1",
     "sqlite": "^5.1.1",
-    "sqlite3": "^6.0.1",
+    "sqlite3": "^5.1.7",
     "telegraf": "^4.15.0",
     "winston": "^3.11.0"
   }

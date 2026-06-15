@@ -46,6 +46,7 @@ async function initDatabase() {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id BIGINT,
         service_id INTEGER,
+        service_name VARCHAR(255),
         api_order_id VARCHAR(50),
         category VARCHAR(100),
         target TEXT,
@@ -54,6 +55,8 @@ async function initDatabase() {
         cost_price BIGINT DEFAULT 0,
         sell_price BIGINT DEFAULT 0,
         profit BIGINT DEFAULT 0,
+        start_count INTEGER DEFAULT 0,
+        remains INTEGER DEFAULT 0,
         status VARCHAR(30) DEFAULT 'pending',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );

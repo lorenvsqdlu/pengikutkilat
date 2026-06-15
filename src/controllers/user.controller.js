@@ -4,6 +4,149 @@ const { sendOrEdit } = require('../utils/ui');
 const { Markup } = require('telegraf');
 
 class UserController {
+  static async handleOrderHistory(ctx) {
+    try {
+      if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+      const user = await UserService.getUser(ctx.from.id);
+      if (!user) return sendOrEdit(ctx, 'Pendaftaran belum selesai. Ketik /start');
+
+      const page = ctx.match && ctx.match[1] ? parseInt(ctx.match[1]) : 1;
+      const limit = 5;
+      const offset = (page - 1) * limit;
+
+      const db = require('../database');
+      const [orders] = await db.query(`SELECT id, created_at, status, service_name FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`, [user.telegram_id, limit, offset]);
+      
+      const [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM orders WHERE user_id = ?`, [user.telegram_id]);
+      
+      if (orders.length === 0) {
+        return sendOrEdit(ctx, 'Belum ada riwayat pesanan.', { 
+           ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]])
+        });
+      }
+
+      const buttons = [];
+      orders.forEach(o => {
+          const dateStr = new Date(o.created_at).toLocaleString('id-ID', {day:'2-digit', month:'short', year:'numeric'});
+          const shortName = o.service_name ? o.service_name.substring(0, 15) + '..' : 'Layanan';
+          buttons.push([Markup.button.callback(`[${o.status}] #${o.id} - ${shortName}`, `order_detail_${o.id}`)]);
+      });
+
+      const navButtons = [];
+      if (page > 1) navButtons.push(Markup.button.callback('⬅️ Prev', `menu_order_history_${page - 1}`));
+      if ((offset + limit) < total) navButtons.push(Markup.button.callback('Next ➡️', `menu_order_history_${page + 1}`));
+      if (navButtons.length > 0) buttons.push(navButtons);
+
+      buttons.push([Markup.button.callback('🔙 Kembali ke Menu', 'back_to_menu_main')]);
+
+      await sendOrEdit(ctx, `🛒 *Riwayat Pesanan (Halaman ${page})*\nPilih pesanan untuk melihat detail:`, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons)
+      });
+    } catch (e) {
+      logger.error('handleOrderHistory error:', e);
+      await sendOrEdit(ctx, 'Gagal memuat riwayat pesanan.');
+    }
+  }
+
+  static async handleOrderDetail(ctx) {
+     try {
+       if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+       const orderId = ctx.match && ctx.match[1];
+       if (!orderId) return;
+
+       const db = require('../database');
+       const [rows] = await db.query(`SELECT id, created_at, service_name, target, quantity, sell_price, start_count, remains, status, api_order_id FROM orders WHERE id = ?`, [orderId]);
+       const order = rows[0];
+       if (!order) return sendOrEdit(ctx, 'Pesanan tidak ditemukan.');
+
+       const d = new Date(order.created_at);
+       const months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+       const dateStr = `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+       
+       const sName = order.service_name ? order.service_name.replace(/</g, "&lt;").replace(/>/g, "&gt;") : 'Layanan SMM';
+
+       const text = `<b>Detail Pesanan #${order.id}</b>\n\n<b>ID Pesanan:</b>\n#${order.id}\n<b>Dibuat:</b>\n${dateStr}\n<b>Layanan:</b>\n${sName}\n<b>Target:</b>\n${order.target}\n<b>Jumlah Pesan:</b>\n${order.quantity}\n<b>Biaya:</b>\nRp ${order.sell_price}\n<b>Jumlah Awal:</b>\n${order.start_count || 0}\n<b>Sisa:</b>\n${order.remains || 0}\n<b>Status:</b>\n${order.status}`;
+
+       await sendOrEdit(ctx, text, {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+             [Markup.button.callback('🔄 Refresh Pesanan', `refresh_order_${order.id}`)],
+             [Markup.button.callback('🔙 Kembali', 'menu_order_history_1')]
+          ])
+       });
+     } catch (e) {
+       logger.error('handleOrderDetail error:', e);
+     }
+  }
+
+  static async handleRefreshOrder(ctx) {
+     try {
+       const orderId = ctx.match && ctx.match[1];
+       if (!orderId) return;
+
+       const db = require('../database');
+       const [rows] = await db.query(`SELECT id, created_at, service_name, target, quantity, sell_price, start_count, remains, status, api_order_id FROM orders WHERE id = ?`, [orderId]);
+       const order = rows[0];
+
+       if (!order) {
+           return ctx.answerCbQuery('Pesanan tidak ditemukan.', { show_alert: true }).catch(() => {});
+       }
+
+       if (!order.api_order_id && order.status === 'Pending') {
+           return ctx.answerCbQuery('Status masih Pending (belum diteruskan ke provider).', { show_alert: true }).catch(() => {});
+       }
+
+       if (order.api_order_id && !['Completed', 'Canceled', 'Cancelled', 'Partial'].includes(order.status)) {
+           const smmService = require('../services/smm.service');
+           try {
+               const res = await smmService.getOrderStatus(order.api_order_id);
+               if (res) {
+                   let apiData = res[order.api_order_id.toString()] || res;
+                   if (apiData.status || apiData.order_status) {
+                       let rawStatus = apiData.status || apiData.order_status;
+                       const finalStatus = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase();
+                       
+                       const sc = apiData.start_count !== undefined && !isNaN(parseInt(apiData.start_count)) ? parseInt(apiData.start_count) : order.start_count;
+                       const rem = apiData.remains !== undefined && !isNaN(parseInt(apiData.remains)) ? parseInt(apiData.remains) : order.remains;
+                       
+                       order.status = finalStatus;
+                       order.start_count = sc || 0;
+                       order.remains = rem || 0;
+
+                       await db.query(`UPDATE orders SET status = ?, start_count = ?, remains = ? WHERE id = ?`, [finalStatus, order.start_count, order.remains, order.id]);
+                   }
+               }
+           } catch(apiError) {
+               return ctx.answerCbQuery(`API Gagal: ${apiError.message}`, { show_alert: true }).catch(() => {});
+           }
+       }
+
+       const d = new Date(order.created_at);
+       const months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+       const dateStr = `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+       
+       const sName = order.service_name ? order.service_name.replace(/</g, "&lt;").replace(/>/g, "&gt;") : 'Layanan SMM';
+
+       const text = `<b>Detail Pesanan #${order.id}</b>\n\n<b>ID Pesanan:</b>\n#${order.id}\n<b>Dibuat:</b>\n${dateStr}\n<b>Layanan:</b>\n${sName}\n<b>Target:</b>\n${order.target}\n<b>Jumlah Pesan:</b>\n${order.quantity}\n<b>Biaya:</b>\nRp ${order.sell_price}\n<b>Jumlah Awal:</b>\n${order.start_count || 0}\n<b>Sisa:</b>\n${order.remains || 0}\n<b>Status:</b>\n${order.status}`;
+
+       await ctx.editMessageText(text, {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+             [Markup.button.callback('🔄 Refresh Pesanan', `refresh_order_${order.id}`)],
+             [Markup.button.callback('🔙 Kembali', 'menu_order_history_1')]
+          ])
+       });
+       await ctx.answerCbQuery('Pesanan berhasil di-refresh!').catch(() => {});
+     } catch (e) {
+       if (e.description && e.description.includes('message is not modified')) {
+           return ctx.answerCbQuery('Belum ada perubahan status dari API provider.', { show_alert: true }).catch(() => {});
+       }
+       logger.error('handleRefreshOrder error:', e);
+       await ctx.answerCbQuery('Gagal refresh, coba lagi nanti.', { show_alert: true }).catch(() => {});
+     }
+  }
+
   static async handleProfile(ctx) {
     try {
       if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});

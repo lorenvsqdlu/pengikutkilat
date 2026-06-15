@@ -3,13 +3,13 @@ const logger = require('../utils/logger');
 
 class OrderService {
   static async createOrder(orderData) {
-    const { user_id, service_id, target, quantity, price, profit, cost_price, sell_price, category, api_order_id, status } = orderData;
+    const { user_id, service_id, service_name, target, quantity, price, profit, cost_price, sell_price, category, api_order_id, status } = orderData;
     const query = `
-      INSERT INTO orders (user_id, service_id, target, quantity, price, profit, cost_price, sell_price, category, api_order_id, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (user_id, service_id, service_name, target, quantity, price, profit, cost_price, sell_price, category, api_order_id, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     const [result] = await db.query(query, [
-      user_id, service_id, target, quantity, price, profit || 0, cost_price || 0, sell_price || 0, category || '', api_order_id || null, status || 'Pending'
+      user_id, service_id, service_name || '', target, quantity, price, profit || 0, cost_price || 0, sell_price || 0, category || '', api_order_id || null, status || 'Pending'
     ]);
     return result.insertId;
   }
