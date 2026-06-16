@@ -65,7 +65,7 @@ const adminSetWelcomeScene = new Scenes.WizardScene(
             }
             
             if (action === 'EDIT_WELCOME') {
-                await ctx.editMessageText('<b>Kirimkan pesan welcome baru.</b>\n\n<i>Placeholder yang didukung:</i>\n{first_name}\n{last_name}\n{username}\n{id}\n\nKirimkan teks atau klik Batal.', {
+                await ctx.editMessageText('<b>Kirimkan pesan welcome baru.</b>\n\n<i>Placeholder yang didukung:</i>\n{bot_name}\n{first_name}\n{last_name}\n{username}\n{id}\n{user_id}\n\nKirimkan teks atau klik Batal.', {
                     parse_mode: 'HTML',
                     ...renderCancel()
                 });

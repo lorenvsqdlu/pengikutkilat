@@ -152,6 +152,7 @@ bot.catch(errorMiddleware);
 bot.on('new_chat_members', async (ctx) => {
     try {
         const AdminService = require('../services/admin.service');
+        const { renderTemplate } = require('../utils/template.util');
         const isEnabled = await AdminService.getSetting('welcome_enabled') === 'true';
         if (!isEnabled) return;
         
@@ -161,11 +162,7 @@ bot.on('new_chat_members', async (ctx) => {
         for (const member of ctx.message.new_chat_members) {
             if (member.is_bot) continue;
             
-            let message = template
-                .replace(/{first_name}/g, member.first_name || '')
-                .replace(/{last_name}/g, member.last_name || '')
-                .replace(/{username}/g, member.username ? '@' + member.username : '')
-                .replace(/{id}/g, member.id || '');
+            let message = renderTemplate(template, member, ctx.botInfo);
                 
             await ctx.reply(message);
         }

@@ -12,9 +12,11 @@ class StartController {
     ]);
   }
 
-  static async getGreetingText(user) {
+  static async getGreetingText(ctx) {
     const AdminService = require('../services/admin.service');
     const logger = require('../utils/logger');
+    const { renderTemplate } = require('../utils/template.util');
+    const user = ctx.from;
     
     // Fetch values directly from DB
     const isEnabledTemplate = await AdminService.getSetting('welcome_enabled');
@@ -24,12 +26,7 @@ class StartController {
     logger.info(`[MENU_RENDER]\nwelcome_db=${isEnabledTemplate}\nwelcome_cache=null\nwelcome_session=null`);
     
     if (isEnabled && messageTemplate) {
-        let message = messageTemplate
-            .replace(/{first_name}/g, user.first_name || '')
-            .replace(/{last_name}/g, user.last_name || '')
-            .replace(/{username}/g, user.username ? '@' + user.username : '')
-            .replace(/{id}/g, user.id || '');
-        return message;
+        return renderTemplate(messageTemplate, user, ctx.botInfo);
     }
 
     const fullname = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'User';
@@ -42,7 +39,7 @@ class StartController {
       await UserService.createUser(user);
       logger.info(`User ${user.id} (@${user.username || 'unknown'}) accessed /start`);
       
-      const text = await StartController.getGreetingText(user);
+      const text = await StartController.getGreetingText(ctx);
       const extra = StartController.getMainMenuExtra();
       
       await ctx.reply(text, extra);
@@ -54,8 +51,7 @@ class StartController {
 
   static async handleBackToMain(ctx) {
     try {
-      const user = ctx.from;
-      const text = await StartController.getGreetingText(user);
+      const text = await StartController.getGreetingText(ctx);
       const extra = StartController.getMainMenuExtra();
       
       if (ctx.callbackQuery) {

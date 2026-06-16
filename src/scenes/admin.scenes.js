@@ -24,7 +24,7 @@ const adminBroadcastScene = new Scenes.WizardScene(
   async (ctx) => {
     const type = ctx.scene.state.type;
     ctx.wizard.state.type = type;
-    await ctx.reply(`Kirimkan pesan yang ingin di-broadcast ke ${type === 'all' ? 'SEMUA USER' : 'USER SPESIFIK'}:\n(Gunakan text biasa atau /cancel untuk batal)`);
+    await ctx.reply(`Kirimkan pesan yang ingin di-broadcast ke ${type === 'all' ? 'SEMUA USER' : 'USER SPESIFIK'}:\n\nAnda dapat menempelkan placeholder berikut:\n{bot_name}, {first_name}, {last_name}, {username}, {user_id}\n\n(Kirim text/caption atau /cancel untuk batal)`);
     return ctx.wizard.next();
   },
   async (ctx) => {
@@ -61,13 +61,15 @@ const adminBroadcastScene = new Scenes.WizardScene(
            await ctx.editMessageText('Broadcast dibatalkan.');
            return ctx.scene.leave();
        }
-       if (ctx.callbackQuery.data === 'CONFIRM') {
+        if (ctx.callbackQuery.data === 'CONFIRM') {
            await ctx.editMessageText('⏳ Mengirim broadcast ke seluruh user...');
            const users = await UserService.getAllUsers();
+           const { renderTemplate } = require('../utils/template.util');
            let success = 0; let failed = 0;
            for (const u of users) {
              try {
-                await ctx.telegram.sendMessage(u.telegram_id, ctx.wizard.state.message);
+                let msg = renderTemplate(ctx.wizard.state.message, u, ctx.botInfo);
+                await ctx.telegram.sendMessage(u.telegram_id, msg);
                 success++;
              } catch(e) { failed++; }
            }
@@ -80,7 +82,11 @@ const adminBroadcastScene = new Scenes.WizardScene(
            if (ctx.message.text === '/cancel') return ctx.scene.leave();
            const userId = ctx.message.text.trim();
            try {
-             await ctx.telegram.sendMessage(userId, ctx.wizard.state.message);
+             const user = await resolveUser(userId) || { id: userId, telegram_id: userId };
+             const { renderTemplate } = require('../utils/template.util');
+             let msg = renderTemplate(ctx.wizard.state.message, user, ctx.botInfo);
+             
+             await ctx.telegram.sendMessage(userId, msg);
              await AdminService.logAction(ctx.from.id, 'BROADCAST_USER', { target: userId, status: 'success' });
              await ctx.reply(`✅ Pesan berhasil dikirim ke ${userId}.`);
            } catch(e) {
