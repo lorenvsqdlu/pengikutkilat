@@ -129,8 +129,12 @@ class SMMService {
         const grouped = {};
         const platforms = new Set();
         
+        let platformCounts = {
+           'Instagram': 0, 'TikTok': 0, 'Youtube': 0, 'Telegram': 0, 'Facebook': 0, 'Twitter (X)': 0, 'Threads': 0
+        };
+        
         servicesList.forEach(s => {
-          let cat = s.category || 'Lainnya';
+          let cat = String(s.category || 'Lainnya');
           if (!cat || cat === 'undefined' || cat === 'null' || cat.trim() === '-' || cat.trim() === '') {
               cat = 'Lainnya';
           }
@@ -149,6 +153,8 @@ class SMMService {
           else if (lowerCat.includes('whatsapp') || lowerCat.includes('wa ')) platform = 'WhatsApp';
           else if (lowerCat.includes('discord')) platform = 'Discord';
           
+          if (platformCounts[platform] !== undefined) platformCounts[platform]++;
+
           if (!grouped[platform]) grouped[platform] = [];
           grouped[platform].push({
             id: s.id || s.service,
@@ -169,8 +175,13 @@ class SMMService {
           platform: plat,
           services: grouped[plat]
         }));
-
         
+        for (const [plat, count] of Object.entries(platformCounts)) {
+            if (count === 0) {
+                logger.warn(`[HEALTH_CHECK] Platform ${plat} memiliki 0 layanan aktif dari provider!`);
+            }
+        }
+
         this.servicesCache = {
           raw: response,
           grouped: groupedArr

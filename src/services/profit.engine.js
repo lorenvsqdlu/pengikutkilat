@@ -3,7 +3,7 @@ const db = require('../database');
 class ProfitEngine {
   static async getCategoryMargin(categoryName) {
     if (!categoryName) return null;
-    const query = `SELECT * FROM category_margins WHERE category_name = ?`;
+    const query = `SELECT * FROM category_margins WHERE LOWER(category_name) = LOWER(?)`;
     const [rows] = await db.query(query, [categoryName]);
     return rows.length ? rows[0] : null;
   }

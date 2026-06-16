@@ -123,72 +123,80 @@ const orderScene = new Scenes.WizardScene(
   
   // Step 2: Pilih Kategori Layanan (Followers, Likes, Views dll)
   async (ctx) => {
-    if (ctx.message && ctx.message.text === '/cancel') return handleCancel(ctx);
-    if (!ctx.callbackQuery) return;
-    
-    const action = ctx.callbackQuery.data;
-    if (action === 'CANCEL') return handleCancel(ctx);
-    
-    if (action.startsWith('PLATFORM_')) {
+    try {
+      if (ctx.message && ctx.message.text === '/cancel') return handleCancel(ctx);
+      if (!ctx.callbackQuery) return;
+      
+      const action = ctx.callbackQuery.data;
+      if (action === 'CANCEL') return handleCancel(ctx);
+      
+      if (action.startsWith('PLATFORM_')) {
+        await ctx.answerCbQuery().catch(() => {});
+        const platformName = action.replace('PLATFORM_', '');
+        ctx.wizard.state.order.platform = platformName;
+        
+        const logger = require('../utils/logger');
+        logger.info(`[PLATFORM CLICK] User ${ctx.from.id} chose platform ${platformName}`);
+        
+        const groupedServices = smmService.getGroupedServices();
+        let platformData = groupedServices.find(g => g.platform === platformName);
+        
+        // Fallback normalizer
+        if (!platformData) {
+            const normReq = platformName.toLowerCase().replace(/[^a-z]/g, '');
+            platformData = groupedServices.find(g => g.platform.toLowerCase().replace(/[^a-z]/g, '') === normReq);
+        }
+        
+        if (!platformData || platformData.services.length === 0) {
+            await sendOrEdit(ctx, '❌ Layanan untuk platform ini tidak tersedia.');
+            return ctx.scene.leave();
+        }
+
+        // Ambil unik kategori pada platform tersebut
+        const categoriesSet = new Set();
+        platformData.services.forEach(s => categoriesSet.add(s.category));
+        const categories = Array.from(categoriesSet).slice(0, 15); // Ambil maks 15 kategori supaya tidak terlalu penuh
+
+        const buttons = [];
+        let catIndex = 0;
+        
+        let hasCatLainnya = false;
+        categories.forEach(cat => {
+            const safeCat = cat || 'Lainnya';
+            if (safeCat === 'Lainnya') { 
+                hasCatLainnya = true; 
+                return; 
+            }
+            const callbackData = `CAT_${catIndex++}`;
+            if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
+            ctx.wizard.state.catMap[callbackData] = safeCat;
+            buttons.push([Markup.button.callback(safeCat.substring(0, 40), callbackData)]);
+        });
+        
+        if (hasCatLainnya) {
+            const callbackData = `CAT_${catIndex++}`;
+            if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
+            ctx.wizard.state.catMap[callbackData] = 'Lainnya';
+            buttons.push([Markup.button.callback('Lainnya', callbackData)]);
+        }
+
+        buttons.push([Markup.button.callback('🔙 Kembali', 'BACK_TO_PLATS')]);
+        buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
+
+        await sendOrEdit(ctx, `Pilih Kategori ${platformName}:`, {
+          ...Markup.inlineKeyboard(buttons)
+        });
+        return ctx.wizard.next();
+      }
+      
+      // Unhandled callbacks (e.g. from previous steps) must be answered to avoid frozen button
       await ctx.answerCbQuery().catch(() => {});
-      const platformName = action.replace('PLATFORM_', '');
-      ctx.wizard.state.order.platform = platformName;
-      
+    } catch (err) {
       const logger = require('../utils/logger');
-      logger.info(`[PLATFORM CLICK] User ${ctx.from.id} chose platform ${platformName}`);
-      
-      const groupedServices = smmService.getGroupedServices();
-      const platformData = groupedServices.find(g => g.platform === platformName);
-      
-      if (!platformData || platformData.services.length === 0) {
-          await sendOrEdit(ctx, 'Layanan untuk platform ini tidak tersedia.');
-          return ctx.scene.leave();
-      }
-
-      // Ambil unik kategori pada platform tersebut
-      const categoriesSet = new Set();
-      platformData.services.forEach(s => categoriesSet.add(s.category));
-      const categories = Array.from(categoriesSet).slice(0, 15); // Ambil maks 15 kategori supaya tidak terlalu penuh
-
-      const buttons = [];
-      let catIndex = 0;
-      
-      let hasCatLainnya = false;
-      categories.forEach(cat => {
-          const safeCat = cat || 'Lainnya';
-          if (safeCat === 'Lainnya') { 
-              hasCatLainnya = true; 
-              return; 
-          }
-          const callbackData = `CAT_${catIndex++}`;
-          if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
-          ctx.wizard.state.catMap[callbackData] = safeCat;
-          buttons.push([Markup.button.callback(safeCat.substring(0, 40), callbackData)]);
-      });
-      
-      if (hasCatLainnya) {
-          const callbackData = `CAT_${catIndex++}`;
-          if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
-          ctx.wizard.state.catMap[callbackData] = 'Lainnya';
-          buttons.push([Markup.button.callback('Lainnya', callbackData)]);
-      }
-
-      buttons.push([Markup.button.callback('🔙 Kembali', 'BACK_TO_PLATS')]);
-      buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
-
-      try {
-          await sendOrEdit(ctx, `Pilih Kategori ${platformName}:`, {
-            ...Markup.inlineKeyboard(buttons)
-          });
-          return ctx.wizard.next();
-      } catch (err) {
-          logger.error(`[CALLBACK ERROR] Step 2 failed to edit menu for ${platformName}:`, err.message);
-          return ctx.scene.leave();
-      }
+      logger.error(`[CALLBACK ERROR] Step 2 failed:`, err.message);
+      await sendOrEdit(ctx, '❌ Terjadi kesalahan saat memuat layanan. Silakan coba kembali beberapa saat lagi.').catch(() => {});
+      return ctx.scene.leave();
     }
-    
-    // Unhandled callbacks (e.g. from previous steps) must be answered to avoid frozen button
-    await ctx.answerCbQuery().catch(() => {});
   },
 
   // Step 3: Pilih Layanan Spesifik
@@ -225,7 +233,12 @@ const orderScene = new Scenes.WizardScene(
                  throw new Error('Cache layanan kosong. Silakan coba lagi.');
             }
             
-            const platformData = groupedServices.find(g => g.platform === ctx.wizard.state.order.platform);
+            let platformData = groupedServices.find(g => g.platform === ctx.wizard.state.order.platform);
+            
+            if (!platformData) {
+                const normReq = ctx.wizard.state.order.platform.toLowerCase().replace(/[^a-z]/g, '');
+                platformData = groupedServices.find(g => g.platform.toLowerCase().replace(/[^a-z]/g, '') === normReq);
+            }
             
             if (!platformData) throw new Error('Data platform tidak ditemukan');
 
