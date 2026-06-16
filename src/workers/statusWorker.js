@@ -32,7 +32,7 @@ setInterval(async () => {
         }
     } catch (e) {
         if (e.code === 'ECONNREFUSED' || e.message.includes('ECONNREFUSED')) {
-            logger.error('[STATUS WORKER] Database connection refused. Retrying later...');
+            logger.warn('[STATUS WORKER] Database connection refused. Retrying later...');
         } else {
             logger.error('[STATUS WORKER] Error fetching active orders', e);
         }

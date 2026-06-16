@@ -19,7 +19,7 @@ setInterval(async () => {
         }
     } catch (e) {
         if (e.code === 'ECONNREFUSED' || e.message.includes('ECONNREFUSED')) {
-            logger.error('[REFILL WORKER] Database connection refused. Retrying later...');
+            logger.warn('[REFILL WORKER] Database connection refused. Retrying later...');
         } else {
             logger.error('[REFILL WORKER] Error fetching active refills', e);
         }
