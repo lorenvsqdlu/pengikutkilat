@@ -10,6 +10,14 @@ const db = require('../database');
 
 const formatRupiah = (angka) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(angka);
 
+const escapeHtml = (text) => {
+    if (text === null || text === undefined) return '';
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+};
+
 class AdminController {
   
   static async handleProfit(ctx) {
@@ -299,7 +307,9 @@ class AdminController {
              const dateFormatted = new Date(dep.created_at).toLocaleString('id-ID');
              const safeAmount = dep.amount || 0;
              
-             let txt = `🧾 *Invoice:*\n\`${dep.reference_id || 'UNKNOWN'}\`\n\n👤 *User:*\n${dep.user_id || 'UNKNOWN'}\n\n💰 *Nominal:*\n${formatRupiah(safeAmount)}\n\n📅 *Tanggal:*\n${dateFormatted}\n\n📌 *Status:*\n${dep.status || 'UNKNOWN'}`;
+             let txt = `🧾 <b>Invoice:</b>\n<code>${escapeHtml(dep.reference_id || 'UNKNOWN')}</code>\n\n👤 <b>User:</b>\n${escapeHtml(dep.user_id || 'UNKNOWN')}\n\n💰 <b>Nominal:</b>\n${escapeHtml(formatRupiah(safeAmount))}\n\n📅 <b>Tanggal:</b>\n${escapeHtml(dateFormatted)}\n\n📌 <b>Status:</b>\n${escapeHtml(dep.status || 'UNKNOWN')}`;
+             
+             logger.info(`[DEPOSIT_PENDING_RENDER_TEXT] text=${JSON.stringify(txt)}`);
              
              // Validate callback lengths
              const cbApprove = `DEP_APPROVE_${dep.reference_id}`;
@@ -310,7 +320,7 @@ class AdminController {
                 inlineKbd.push([Markup.button.callback('✅ Setujui', cbApprove), Markup.button.callback('❌ Tolak', cbReject)]);
              } else {
                 logger.error(`[DEPOSIT_PENDING_ERROR] callback data too long for ref ${dep.reference_id}`);
-                txt += `\n\n⚠️ *ID Terlalu Panjang untuk Action*`;
+                txt += `\n\n⚠️ <b>ID Terlalu Panjang untuk Action</b>`;
              }
              inlineKbd.push([Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]);
              
@@ -322,7 +332,7 @@ class AdminController {
                  try {
                     return await ctx.replyWithPhoto(dep.proof_image, {
                         caption: txt,
-                        parse_mode: 'Markdown',
+                        parse_mode: 'HTML',
                         reply_markup: {
                             inline_keyboard: inlineKbd
                         }
@@ -333,7 +343,7 @@ class AdminController {
              }
              
              return await ctx.reply(txt, {
-                  parse_mode: 'Markdown',
+                  parse_mode: 'HTML',
                   reply_markup: {
                       inline_keyboard: inlineKbd
                   }
@@ -341,7 +351,7 @@ class AdminController {
          } catch (e) {
              logger.error(`[DEPOSIT_PENDING_ERROR] error=${e.message}`);
              try {
-                 return await ctx.reply('❌ Terjadi kesalahan sistem saat mengambil data deposit.', {
+                 return await ctx.reply('❌ Gagal menampilkan daftar deposit.\nSilakan cek log server.', {
                      ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]])
                  });
              } catch (err) {}
