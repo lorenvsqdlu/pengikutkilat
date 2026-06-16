@@ -12,7 +12,26 @@ class StartController {
     ]);
   }
 
-  static getGreetingText(user) {
+  static async getGreetingText(user) {
+    const AdminService = require('../services/admin.service');
+    const logger = require('../utils/logger');
+    
+    // Fetch values directly from DB
+    const isEnabledTemplate = await AdminService.getSetting('welcome_enabled');
+    const isEnabled = isEnabledTemplate === 'true';
+    const messageTemplate = await AdminService.getSetting('welcome_message');
+    
+    logger.info(`[MENU_RENDER]\nwelcome_db=${isEnabledTemplate}\nwelcome_cache=null\nwelcome_session=null`);
+    
+    if (isEnabled && messageTemplate) {
+        let message = messageTemplate
+            .replace(/{first_name}/g, user.first_name || '')
+            .replace(/{last_name}/g, user.last_name || '')
+            .replace(/{username}/g, user.username ? '@' + user.username : '')
+            .replace(/{id}/g, user.id || '');
+        return message;
+    }
+
     const fullname = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'User';
     return `Halo, ${fullname}! Selamat datang di SMM Bot.\n\nSilakan pilih menu di bawah ini:`;
   }
@@ -23,7 +42,7 @@ class StartController {
       await UserService.createUser(user);
       logger.info(`User ${user.id} (@${user.username || 'unknown'}) accessed /start`);
       
-      const text = StartController.getGreetingText(user);
+      const text = await StartController.getGreetingText(user);
       const extra = StartController.getMainMenuExtra();
       
       await ctx.reply(text, extra);
@@ -36,7 +55,7 @@ class StartController {
   static async handleBackToMain(ctx) {
     try {
       const user = ctx.from;
-      const text = StartController.getGreetingText(user);
+      const text = await StartController.getGreetingText(user);
       const extra = StartController.getMainMenuExtra();
       
       if (ctx.callbackQuery) {
