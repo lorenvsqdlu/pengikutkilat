@@ -41,7 +41,34 @@ class QueueService {
       ) 
       RETURNING *
     `;
-    const [rows] = await db.query(query);
+    
+    // Fallback query if updated_at is missing
+    const fallbackQuery = `
+      UPDATE orders_queue 
+      SET status = 'processing'
+      WHERE id = (
+        SELECT id FROM orders_queue 
+        WHERE status = 'pending' 
+        ORDER BY id ASC 
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      ) 
+      RETURNING *
+    `;
+    
+    let rows;
+    try {
+        [rows] = await db.query(query);
+    } catch (e) {
+        if (e.message.includes('column "updated_at"') && e.message.includes('does not exist')) {
+            const logger = require('../utils/logger');
+            logger.warn('[SCHEMA CHECK] fallback enabled for orders_queue.updated_at in popOrder');
+            [rows] = await db.query(fallbackQuery);
+        } else {
+            throw e;
+        }
+    }
+    
     if (rows && rows.length > 0) {
       const job = rows[0];
       if (typeof job.smm_payload === 'string') {
@@ -59,7 +86,26 @@ class QueueService {
       WHERE status = 'processing' 
       AND updated_at < NOW() - INTERVAL '15 minutes'
     `;
-    const [result] = await db.query(query);
+    
+    const fallbackQuery = `
+      UPDATE orders_queue 
+      SET status = 'pending'
+      WHERE status = 'processing' 
+      AND created_at < NOW() - INTERVAL '15 minutes'
+    `;
+    
+    let result;
+    try {
+        [result] = await db.query(query);
+    } catch (e) {
+        if (e.message.includes('column "updated_at"') && e.message.includes('does not exist')) {
+            const logger = require('../utils/logger');
+            logger.warn('[SCHEMA CHECK] fallback enabled for orders_queue.updated_at in recoverZombieOrders');
+            [result] = await db.query(fallbackQuery);
+        } else {
+            throw e;
+        }
+    }
     return result.affectedRows;
   }
 

@@ -59,12 +59,16 @@ app.listen(config.PORT, async () => {
       const db = require('./database/index');
       await db.init();
       logger.info('Database Initialized.');
+      
+      const checkAndMigrate = require('./database/schemaChecker');
+      await checkAndMigrate();
+      
     } catch (err) {
       logger.error('Failed to initialize database. Operating in memory-only or stateless mode...');
       // Stop the loop completely
     }
   };
-  initDbWithRetry();
+  await initDbWithRetry();
 
   // Test SMM API Connection
   await smmService.testConnection();

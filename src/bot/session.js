@@ -24,7 +24,21 @@ async function saveSession(key, data) {
             VALUES ($1, $2, CURRENT_TIMESTAMP) 
             ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = CURRENT_TIMESTAMP
         `;
-        await db.query(query, [key, jsonData]);
+        
+        try {
+            await db.query(query, [key, jsonData]);
+        } catch (e) {
+            if (e.message.includes('column "updated_at"') && e.message.includes('does not exist')) {
+                const fallbackQuery = `
+                    INSERT INTO user_sessions (id, data) 
+                    VALUES ($1, $2) 
+                    ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data
+                `;
+                await db.query(fallbackQuery, [key, jsonData]);
+            } else {
+                throw e;
+            }
+        }
     } catch (e) {
         console.error('Failed to save session:', e.message);
     }

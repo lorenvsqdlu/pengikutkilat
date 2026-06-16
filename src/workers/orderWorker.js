@@ -115,7 +115,18 @@ async function processOrder(job) {
             sqlUpdates.push(order_id);
 
             const db = require('../database');
-            await db.query(sqlQuery, sqlUpdates);
+            try {
+                await db.query(sqlQuery, sqlUpdates);
+            } catch (e) {
+                if (e.message.includes('column') && e.message.includes('does not exist') && base_price && quantity) {
+                    const logger = require('../utils/logger');
+                    logger.warn('[SCHEMA CHECK] fallback enabled for orders table (cost_price/profit)');
+                    const fallbackQuery = 'UPDATE orders SET api_order_id = ?, status = ? WHERE id = ?';
+                    await db.query(fallbackQuery, [apiOrderId.toString(), 'Processing', order_id]);
+                } else {
+                    throw e;
+                }
+            }
             
             // Notifikasi sukses ke user
             const msg = `✅ *Order Diproses API!*\nID Order: \`${order_id}\`\nLayanan: ${smm_payload.service}\nTarget: ${smm_payload.target}\nHarga: Rp ${parseFloat(price).toLocaleString('id-ID')}\nSaldo telah dipotong.`;
