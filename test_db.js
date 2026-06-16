@@ -1,11 +1,9 @@
-const pool = require('./src/config/database');
+require('dotenv').config();
+const db = require('./src/database');
 async function test() {
-  try {
-    const res = await pool.query("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public';");
-    console.log(res.rows);
-  } catch(e) {
-    console.error(e);
-  }
-  process.exit(0);
+    await db.init();
+    await db.query("INSERT INTO settings (setting_key, setting_value) VALUES ('welcome_message', 'TEST1') ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value");
+    const [rows] = await db.query("SELECT * FROM settings WHERE setting_key = 'welcome_message'");
+    console.log(rows);
 }
-test();
+test().catch(console.error).then(()=>process.exit(0));

@@ -135,65 +135,80 @@ const orderScene = new Scenes.WizardScene(
         const platformName = action.replace('PLATFORM_', '');
         ctx.wizard.state.order.platform = platformName;
         
-        const logger = require('../utils/logger');
-        logger.info(`[PLATFORM CLICK] User ${ctx.from.id} chose platform ${platformName}`);
-        
-        const groupedServices = smmService.getGroupedServices();
-        let platformData = groupedServices.find(g => g.platform === platformName);
-        
-        // Fallback normalizer
-        if (!platformData) {
-            const normReq = platformName.toLowerCase().replace(/[^a-z]/g, '');
-            platformData = groupedServices.find(g => g.platform.toLowerCase().replace(/[^a-z]/g, '') === normReq);
-        }
-        
-        if (platformName.toLowerCase().includes('twitter') || platformName.toLowerCase().includes('x')) {
-            logger.info(`[Twitter Debug] callback=${action} normalized=${platformName} services_found=${platformData ? platformData.services.length : 0}`);
-            if (platformData && platformData.services.length > 0) {
-               logger.info(`[Twitter Debug] first_service=${JSON.stringify(platformData.services[0])}`);
+        try {
+            const logger = require('../utils/logger');
+            logger.info(`[PLATFORM CLICK] User ${ctx.from.id} chose platform ${platformName}`);
+            
+            const groupedServices = smmService.getGroupedServices();
+            let platformData = groupedServices.find(g => g.platform === platformName);
+            
+            // Fallback normalizer
+            if (!platformData) {
+                const normReq = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
+                platformData = groupedServices.find(g => g.platform.toLowerCase().replace(/[^a-z0-9]/g, '') === normReq);
             }
-        }
-        
-        if (!platformData || platformData.services.length === 0) {
-            await sendOrEdit(ctx, `⚠️ Layanan ${platformName} belum tersedia.`);
+            
+            if (platformName.toLowerCase().includes('twitter') || platformName.toLowerCase().includes('x')) {
+                logger.info(`[Twitter Debug]\ncallback=${action}\nnormalized=${platformName}\nservices_found=${platformData ? platformData.services.length : 0}`);
+                if (platformData && platformData.services.length > 0) {
+                   // stringify try catch to prevent circular crash
+                   try {
+                       logger.info(`first_service=${JSON.stringify(platformData.services[0])}`);
+                   } catch(e) {
+                       logger.info(`first_service=[Circular/Unserializable Data]`);
+                   }
+                }
+            }
+            
+            if (!platformData || platformData.services.length === 0) {
+                await sendOrEdit(ctx, `⚠️ Layanan ${platformName} belum tersedia.`);
+                return ctx.scene.leave();
+            }
+
+            // Ambil unik kategori pada platform tersebut
+            const categoriesSet = new Set();
+            platformData.services.forEach(s => {
+                if (s && s.category) categoriesSet.add(s.category);
+                else categoriesSet.add('Lainnya');
+            });
+            const categories = Array.from(categoriesSet).slice(0, 15);
+
+            const buttons = [];
+            let catIndex = 0;
+            
+            let hasCatLainnya = false;
+            categories.forEach(cat => {
+                const safeCat = cat ? String(cat) : 'Lainnya';
+                if (safeCat === 'Lainnya') { 
+                    hasCatLainnya = true; 
+                    return; 
+                }
+                const callbackData = `CAT_${catIndex++}`;
+                if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
+                ctx.wizard.state.catMap[callbackData] = safeCat;
+                buttons.push([Markup.button.callback(safeCat.substring(0, 40), callbackData)]);
+            });
+            
+            if (hasCatLainnya) {
+                const callbackData = `CAT_${catIndex++}`;
+                if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
+                ctx.wizard.state.catMap[callbackData] = 'Lainnya';
+                buttons.push([Markup.button.callback('Lainnya', callbackData)]);
+            }
+
+            buttons.push([Markup.button.callback('🔙 Kembali', 'BACK_TO_PLATS')]);
+            buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
+
+            await sendOrEdit(ctx, `Pilih Kategori ${platformName}:`, {
+              ...Markup.inlineKeyboard(buttons)
+            });
+            return ctx.wizard.next();
+        } catch (e) {
+            const logger = require('../utils/logger');
+            logger.error(`[Twitter/Threads Debug Error] stack=${e.stack}`);
+            await sendOrEdit(ctx, `❌ Terjadi kesalahan saat memuat layanan. Error: ${e.message}`);
             return ctx.scene.leave();
         }
-
-        // Ambil unik kategori pada platform tersebut
-        const categoriesSet = new Set();
-        platformData.services.forEach(s => categoriesSet.add(s.category));
-        const categories = Array.from(categoriesSet).slice(0, 15); // Ambil maks 15 kategori supaya tidak terlalu penuh
-
-        const buttons = [];
-        let catIndex = 0;
-        
-        let hasCatLainnya = false;
-        categories.forEach(cat => {
-            const safeCat = cat ? String(cat) : 'Lainnya';
-            if (safeCat === 'Lainnya') { 
-                hasCatLainnya = true; 
-                return; 
-            }
-            const callbackData = `CAT_${catIndex++}`;
-            if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
-            ctx.wizard.state.catMap[callbackData] = safeCat;
-            buttons.push([Markup.button.callback(safeCat.substring(0, 40), callbackData)]);
-        });
-        
-        if (hasCatLainnya) {
-            const callbackData = `CAT_${catIndex++}`;
-            if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
-            ctx.wizard.state.catMap[callbackData] = 'Lainnya';
-            buttons.push([Markup.button.callback('Lainnya', callbackData)]);
-        }
-
-        buttons.push([Markup.button.callback('🔙 Kembali', 'BACK_TO_PLATS')]);
-        buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
-
-        await sendOrEdit(ctx, `Pilih Kategori ${platformName}:`, {
-          ...Markup.inlineKeyboard(buttons)
-        });
-        return ctx.wizard.next();
       }
       
       // Unhandled callbacks (e.g. from previous steps) must be answered to avoid frozen button

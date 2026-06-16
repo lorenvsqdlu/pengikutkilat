@@ -435,22 +435,30 @@ class AdminController {
          }
          await UserService.setLock(ctx.from.id, 5); // 5s lock
          
+         await ctx.answerCbQuery('Memproses...').catch(()=>({}));
          const refId = action.replace('DEP_APPROVE_', '');
          const client = await db.pool.connect();
          try {
              await client.query('BEGIN');
              
-             // Use raw client to ensure transaction lock
-             const depositRes = await client.query('SELECT * FROM deposits WHERE reference_id = $1 FOR UPDATE', [refId]);
-             const deposit = depositRes.rows[0];
+             // Use returning for atomic update
+             const updateRes = await client.query(`
+                UPDATE deposits 
+                SET status = 'Approved', approved_at = CURRENT_TIMESTAMP, admin_id = $1 
+                WHERE reference_id = $2 AND status IN ('Pending', 'WAITING_APPROVAL')
+                RETURNING *
+             `, [ctx.from.id, refId]);
              
-             if (!deposit || (deposit.status !== 'Pending' && deposit.status !== 'WAITING_APPROVAL')) {
+             if (updateRes.rows.length === 0) {
                  await client.query('ROLLBACK');
                  client.release();
-                 return ctx.reply('❌ Deposit tidak ditemukan atau sudah diproses.');
+                 const logger = require('../utils/logger');
+                 logger.warn(`[DEPOSIT] Approve rejected: ${refId} already processed`);
+                 return ctx.reply('❌ Deposit sudah diproses sebelumnya.');
              }
              
-             await client.query(`UPDATE deposits SET status = 'Approved', approved_at = CURRENT_TIMESTAMP, admin_id = $1 WHERE reference_id = $2`, [ctx.from.id, refId]);
+             const deposit = updateRes.rows[0];
+             
              const userRes = await client.query('SELECT balance FROM users WHERE telegram_id = $1 FOR UPDATE', [deposit.user_id]);
              if (userRes.rows.length > 0) {
                  const balanceBefore = Math.floor(Number(userRes.rows[0].balance));
@@ -467,6 +475,8 @@ class AdminController {
              client.release();
              
              // Logging outside transaction is fine
+             const logger = require('../utils/logger');
+             logger.info(`[DEPOSIT] approved by admin for ref ${refId}`);
              await AdminService.logAction(ctx.from.id, 'APPROVE_DEPOSIT', { reference_id: refId, amount: deposit.amount });
              
              try {
@@ -482,6 +492,8 @@ class AdminController {
          } catch (err) {
              await client.query('ROLLBACK');
              client.release();
+             const logger = require('../utils/logger');
+             logger.error(`[DEPOSIT] Error approving: ${err.message}\n${err.stack}`);
              return ctx.reply('❌ Terjadi kesalahan saat memproses deposit (Transaksi gagal).');
          }
      }
@@ -494,6 +506,7 @@ class AdminController {
          }
          await UserService.setLock(ctx.from.id, 5); // 5s lock
 
+         await ctx.answerCbQuery('Membuka menu tolakan...').catch(()=>({}));
          const refId = action.replace('DEP_REJECT_', '');
          const deposit = await DepositService.getDepositByRef(refId);
          if (!deposit || (deposit.status !== 'Pending' && deposit.status !== 'WAITING_APPROVAL')) {

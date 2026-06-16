@@ -25,7 +25,25 @@ class AdminService {
   }
 
   static async setSetting(key, value) {
-    await db.query(`INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value`, [key, value]);
+    try {
+        const [updateRes] = await db.query('UPDATE settings SET setting_value = ? WHERE setting_key = ? RETURNING *', [value, key]);
+        if (!updateRes || updateRes.length === 0) {
+            await db.query('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)', [key, value]);
+        }
+        const logger = require('../utils/logger');
+        const shortKey = key.replace('_message', '').replace('_channel', '').replace('force_subscribe', 'FORCESUB');
+        if (shortKey.includes('FORCESUB')) {
+            logger.info(`[FORCESUB] channel updated`);
+            logger.info(`[FORCESUB] settings reloaded`);
+        } else {
+            logger.info(`[SETTINGS] ${shortKey} updated`);
+            logger.info(`[SETTINGS] ${shortKey} reloaded`);
+        }
+    } catch (e) {
+        const logger = require('../utils/logger');
+        logger.error(`Failed to set setting ${key}: ${e.message}`);
+        throw e;
+    }
   }
 }
 

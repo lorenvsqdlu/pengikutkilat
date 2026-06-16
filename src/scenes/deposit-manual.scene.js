@@ -117,6 +117,8 @@ const rejectDepositScene = new Scenes.WizardScene(
                 return ctx.scene.leave();
             }
             // Update the logs as well
+            const logger = require('../utils/logger');
+            logger.info(`[DEPOSIT] rejected by admin ${ctx.from.id} for ref ${refId}`);
             await AdminService.logAction(ctx.from.id, 'REJECT_DEPOSIT', { reference_id: refId, reason });
             
             await ctx.reply(`✅ Deposit ${refId} berhasil direject.`, {

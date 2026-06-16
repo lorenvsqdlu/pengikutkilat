@@ -31,20 +31,6 @@ class QueueService {
     // Atomic pop for PostgreSQL to prevent race conditions across multiple instances
     const query = `
       UPDATE orders_queue 
-      SET status = 'processing', updated_at = CURRENT_TIMESTAMP
-      WHERE id = (
-        SELECT id FROM orders_queue 
-        WHERE status = 'pending' 
-        ORDER BY id ASC 
-        FOR UPDATE SKIP LOCKED
-        LIMIT 1
-      ) 
-      RETURNING *
-    `;
-    
-    // Fallback query if updated_at is missing
-    const fallbackQuery = `
-      UPDATE orders_queue 
       SET status = 'processing'
       WHERE id = (
         SELECT id FROM orders_queue 
@@ -60,13 +46,7 @@ class QueueService {
     try {
         [rows] = await db.query(query);
     } catch (e) {
-        if (e.message.includes('column "updated_at"') && e.message.includes('does not exist')) {
-            const logger = require('../utils/logger');
-            logger.warn('[SCHEMA CHECK] fallback enabled for orders_queue.updated_at in popOrder');
-            [rows] = await db.query(fallbackQuery);
-        } else {
-            throw e;
-        }
+        throw e;
     }
     
     if (rows && rows.length > 0) {
@@ -80,13 +60,6 @@ class QueueService {
   }
 
   static async recoverZombieOrders() {
-    const query = `
-      UPDATE orders_queue 
-      SET status = 'pending', updated_at = CURRENT_TIMESTAMP
-      WHERE status = 'processing' 
-      AND updated_at < NOW() - INTERVAL '15 minutes'
-    `;
-    
     const fallbackQuery = `
       UPDATE orders_queue 
       SET status = 'pending'
@@ -96,15 +69,9 @@ class QueueService {
     
     let result;
     try {
-        [result] = await db.query(query);
+        [result] = await db.query(fallbackQuery);
     } catch (e) {
-        if (e.message.includes('column "updated_at"') && e.message.includes('does not exist')) {
-            const logger = require('../utils/logger');
-            logger.warn('[SCHEMA CHECK] fallback enabled for orders_queue.updated_at in recoverZombieOrders');
-            [result] = await db.query(fallbackQuery);
-        } else {
-            throw e;
-        }
+        throw e;
     }
     return result.affectedRows;
   }
