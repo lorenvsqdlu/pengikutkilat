@@ -181,10 +181,13 @@ class DatabaseParams {
         const result = await this.pool.query(pgSql, params);
         // Postgres returns result.rows
         const isSelect = upper.startsWith('SELECT');
-        if (isSelect) {
-            return [result.rows, []];
+        if (isSelect || upper.includes('RETURNING *') || upper.includes('RETURNING ID')) {
+            const returnedArray = result.rows || [];
+            returnedArray.insertId = result.rows[0]?.id || null;
+            returnedArray.affectedRows = result.rowCount;
+            return [returnedArray, []];
         } else {
-            // For updates/inserts
+            // For updates/inserts without returning actual rows to be matched
             return [{ insertId: result.rows[0]?.id || null, affectedRows: result.rowCount }, []];
         }
     } catch (e) {

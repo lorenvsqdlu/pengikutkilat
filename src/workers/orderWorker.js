@@ -46,7 +46,10 @@ async function processOrder(job) {
         await delay(300); // delay anti limit
 
         // SQLite job format is slightly different 
-        const { order_id, user_id, price, base_price, quantity, category, smm_payload } = job;
+        let { order_id, user_id, price, base_price, quantity, category, smm_payload } = job;
+        
+        price = Math.floor(Number(price || 0));
+        quantity = Math.floor(Number(quantity || 0));
         
         // Check balance and deduct immediately to prevent race conditions
         const user = await UserService.getUser(user_id);

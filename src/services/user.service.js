@@ -69,18 +69,23 @@ class UserService {
    * @param {number} amount (can be negative to decrease)
    */
   static async updateBalance(telegramId, amount) {
+    const rawVal = Number(amount || 0);
+    if (!Number.isFinite(rawVal)) {
+      throw new Error('Invalid numeric value detected for balance update');
+    }
+    const safeAmount = Math.floor(rawVal);
     let query;
-    if (amount < 0) {
+    if (safeAmount < 0) {
       // Prevent negative balance
       query = `UPDATE users SET balance = balance + ? WHERE telegram_id = ? AND balance + ? >= 0`;
-      const [result] = await db.query(query, [amount, telegramId, amount]);
+      const [result] = await db.query(query, [safeAmount, telegramId, safeAmount]);
       if (result.affectedRows === 0) {
           throw new Error('Insufficient balance or user not found');
       }
       return result;
     } else {
       query = `UPDATE users SET balance = balance + ? WHERE telegram_id = ?`;
-      const [result] = await db.query(query, [amount, telegramId]);
+      const [result] = await db.query(query, [safeAmount, telegramId]);
       return result;
     }
   }

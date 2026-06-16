@@ -2,6 +2,12 @@ const db = require('../database');
 
 class QueueService {
   static async pushOrder(jobPayload) {
+    const parseSafeInt = (val) => {
+        const num = Number(val || 0);
+        if (!Number.isFinite(num)) throw new Error(`Invalid numeric value detected: ${val}`);
+        return Math.floor(num);
+    };
+
     const query = `
       INSERT INTO orders_queue 
       (order_id, user_id, service_id, target, quantity, price, base_price, category, smm_payload, status)
@@ -12,9 +18,9 @@ class QueueService {
       jobPayload.user_id,
       jobPayload.smm_payload.service,
       jobPayload.smm_payload.target,
-      jobPayload.quantity,
-      jobPayload.price,
-      jobPayload.base_price,
+      parseSafeInt(jobPayload.quantity),
+      parseSafeInt(jobPayload.price),
+      jobPayload.base_price, // Leave base price as decimal
       jobPayload.category,
       JSON.stringify(jobPayload.smm_payload)
     ];
@@ -22,13 +28,26 @@ class QueueService {
   }
 
   static async popOrder() {
-    // SQLite does not support SELECT FOR UPDATE properly if simple, but we can do it via a simple UPDATE with returning or SELECT then UPDATE.
-    // However, since max concurrency is 1, a simple SELECT then UPDATE works in Node single thread.
-    const [rows] = await db.query(`SELECT * FROM orders_queue WHERE status = 'pending' ORDER BY id ASC LIMIT 1`);
+    // Atomic pop for PostgreSQL to prevent race conditions across multiple instances
+    const query = `
+      UPDATE orders_queue 
+      SET status = 'processing' 
+      WHERE id = (
+        SELECT id FROM orders_queue 
+        WHERE status = 'pending' 
+        ORDER BY id ASC 
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      ) 
+      RETURNING *
+    `;
+    const [rows] = await db.query(query);
     if (rows && rows.length > 0) {
       const job = rows[0];
-      await db.query(`UPDATE orders_queue SET status = 'processing' WHERE id = ?`, [job.id]);
-      job.smm_payload = JSON.parse(job.smm_payload);
+      // Since our query wrapper might return something slightly different for UPDATE RETURNING, let's parse safely
+      if (typeof job.smm_payload === 'string') {
+          try { job.smm_payload = JSON.parse(job.smm_payload); } catch(e){}
+      }
       return job;
     }
     return null;

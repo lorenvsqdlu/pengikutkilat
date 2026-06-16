@@ -4,12 +4,25 @@ const logger = require('../utils/logger');
 class OrderService {
   static async createOrder(orderData) {
     const { user_id, service_id, service_name, target, quantity, price, profit, cost_price, sell_price, category, api_order_id, status } = orderData;
+    
+    const parseSafeInt = (val) => {
+        const num = Number(val || 0);
+        if (!Number.isFinite(num)) throw new Error(`Invalid numeric value detected: ${val}`);
+        return Math.floor(num);
+    };
+
     const query = `
       INSERT INTO orders (user_id, service_id, service_name, target, quantity, price, profit, cost_price, sell_price, category, api_order_id, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
+    const safePrice = parseSafeInt(price);
+    const safeProfit = parseSafeInt(profit);
+    const safeCostPrice = parseSafeInt(cost_price);
+    const safeSellPrice = parseSafeInt(sell_price);
+    const safeQuantity = parseSafeInt(quantity);
+
     const [result] = await db.query(query, [
-      user_id, service_id, service_name || '', target, quantity, price, profit || 0, cost_price || 0, sell_price || 0, category || '', api_order_id || null, status || 'Pending'
+      user_id, service_id, service_name || '', target, safeQuantity, safePrice, safeProfit, safeCostPrice, safeSellPrice, category || '', api_order_id || null, status || 'Pending'
     ]);
     return result.insertId;
   }

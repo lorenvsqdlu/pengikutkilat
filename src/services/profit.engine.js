@@ -48,9 +48,9 @@ class ProfitEngine {
     const profit = sellPrice - costPrice;
 
     return {
-      cost_price: parseFloat(costPrice.toFixed(2)),
-      sell_price: parseFloat(sellPrice.toFixed(2)),
-      profit: parseFloat(profit.toFixed(2))
+      cost_price: Math.floor(Number(costPrice || 0)),
+      sell_price: Math.floor(Number(sellPrice || 0)),
+      profit: Math.floor(Number(profit || 0))
     };
   }
 
