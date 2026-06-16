@@ -64,29 +64,52 @@ class UserService {
   }
 
   /**
-   * Update a user's balance
+   * Update a user's balance and record mutation
    * @param {number} telegramId
    * @param {number} amount (can be negative to decrease)
+   * @param {string} type e.g., 'Deposit', 'Order', 'Refund'
+   * @param {string} description Note about the mutation
+   * @param {string} referenceId order or deposit ID
    */
-  static async updateBalance(telegramId, amount) {
+  static async updateBalance(telegramId, amount, type = 'System', description = '', referenceId = null) {
     const rawVal = Number(amount || 0);
     if (!Number.isFinite(rawVal)) {
       throw new Error('Invalid numeric value detected for balance update');
     }
     const safeAmount = Math.floor(rawVal);
-    let query;
-    if (safeAmount < 0) {
-      // Prevent negative balance
-      query = `UPDATE users SET balance = balance + ? WHERE telegram_id = ? AND balance + ? >= 0`;
-      const [result] = await db.query(query, [safeAmount, telegramId, safeAmount]);
-      if (result.affectedRows === 0) {
-          throw new Error('Insufficient balance or user not found');
-      }
-      return result;
-    } else {
-      query = `UPDATE users SET balance = balance + ? WHERE telegram_id = ?`;
-      const [result] = await db.query(query, [safeAmount, telegramId]);
-      return result;
+    
+    // We use a transaction because we need to read the balance, update it, and insert mutation
+    const client = await db.pool.connect();
+    try {
+        await client.query('BEGIN');
+        
+        // Lock user row
+        const userRes = await client.query('SELECT balance FROM users WHERE telegram_id = $1 FOR UPDATE', [telegramId]);
+        if (userRes.rows.length === 0) throw new Error('User not found');
+        
+        const balanceBefore = Math.floor(Number(userRes.rows[0].balance));
+        const balanceAfter = balanceBefore + safeAmount;
+        
+        if (safeAmount < 0 && balanceAfter < 0) {
+            throw new Error('Insufficient balance');
+        }
+        
+        await client.query('UPDATE users SET balance = $1 WHERE telegram_id = $2', [balanceAfter, telegramId]);
+        
+        if (safeAmount !== 0) {
+            await client.query(`
+                INSERT INTO balance_mutations (user_id, type, amount, balance_before, balance_after, description, reference_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `, [telegramId, type, Math.abs(safeAmount), balanceBefore, balanceAfter, description, referenceId]);
+        }
+        
+        await client.query('COMMIT');
+        return { affectedRows: 1 };
+    } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    } finally {
+        client.release();
     }
   }
 }

@@ -36,6 +36,17 @@ class DepositService {
     return result.affectedRows > 0;
   }
 
+  static async expireDeposits() {
+     const query = `
+        UPDATE deposits 
+        SET status = 'Expired' 
+        WHERE status = 'Pending' 
+        AND created_at < NOW() - INTERVAL '24 hours'
+     `;
+     const [result] = await db.query(query);
+     return result.affectedRows;
+  }
+
   static async getDepositHistory(user_id, limit = 5) {
      const query = `SELECT * FROM deposits WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`;
      const [rows] = await db.query(query, [user_id, limit]);

@@ -1,4 +1,5 @@
-const { Telegraf, session, Scenes } = require('telegraf');
+const { Telegraf, Scenes } = require('telegraf');
+const pgSession = require('./session');
 const config = require('../config');
 const loggerMiddleware = require('../middlewares/logger.middleware');
 const errorMiddleware = require('../middlewares/error.middleware');
@@ -27,7 +28,7 @@ const UserController = require('../controllers/user.controller');
 const bot = new Telegraf(config.BOT_TOKEN || 'DUMMY_TOKEN_PREVENT_CRASH');
 
 // Middlewares
-bot.use(session());
+bot.use(pgSession());
 bot.use(rateLimitMiddleware); // Proteksi spam
 bot.use(authMiddleware);
 bot.use(loggerMiddleware); // Pindahkan logger ke atas (setelah session)

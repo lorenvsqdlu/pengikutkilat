@@ -18,7 +18,11 @@ setInterval(async () => {
            // logger.info(`[REFILL WORKER] Added ${refillQueue.length} pending refills to queue.`);
         }
     } catch (e) {
-        logger.error('[REFILL WORKER] Error fetching active refills', e);
+        if (e.code === 'ECONNREFUSED' || e.message.includes('ECONNREFUSED')) {
+            logger.error('[REFILL WORKER] Database connection refused. Retrying later...');
+        } else {
+            logger.error('[REFILL WORKER] Error fetching active refills', e);
+        }
     }
 }, 120000); // Check every 2 mins
 

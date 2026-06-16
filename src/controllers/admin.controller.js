@@ -109,7 +109,19 @@ class AdminController {
           }
           
           await client.query(`UPDATE deposits SET status = 'Approved', approved_at = CURRENT_TIMESTAMP, admin_id = $1 WHERE reference_id = $2`, [ctx.from.id, refId]);
-          await client.query(`UPDATE users SET balance = balance + $1 WHERE telegram_id = $2`, [deposit.amount, deposit.user_id]);
+          
+          const userRes = await client.query('SELECT balance FROM users WHERE telegram_id = $1 FOR UPDATE', [deposit.user_id]);
+          if (userRes.rows.length > 0) {
+              const balanceBefore = Math.floor(Number(userRes.rows[0].balance));
+              const safeAmount = Math.floor(Number(deposit.amount));
+              const balanceAfter = balanceBefore + safeAmount;
+              await client.query('UPDATE users SET balance = $1 WHERE telegram_id = $2', [balanceAfter, deposit.user_id]);
+              await client.query(`
+                  INSERT INTO balance_mutations (user_id, type, amount, balance_before, balance_after, description, reference_id)
+                  VALUES ($1, $2, $3, $4, $5, $6, $7)
+              `, [deposit.user_id, 'Deposit', safeAmount, balanceBefore, balanceAfter, 'Deposit Approved via Admin', refId]);
+          }
+
           await client.query('COMMIT');
           client.release();
           
@@ -142,10 +154,16 @@ class AdminController {
         Markup.button.callback('📊 Statistik Web', 'ADMIN_STATS')
       ],
       [Markup.button.callback('👥 Kelola User', 'ADMIN_USER_MENU')],
-      [Markup.button.callback('⚙️ Ubah Markup %', 'ADMIN_MARKUP')],
+      [
+        Markup.button.callback('⚙️ Ubah Markup %', 'ADMIN_MARKUP'),
+        Markup.button.callback('⚠️ Manual Check', 'ADMIN_MANUAL_CHECK')
+      ],
       [Markup.button.callback('🏦 Kelola Rekening', 'ADMIN_BANK')],
       [Markup.button.callback('⚙️ Pengaturan Bot', 'ADMIN_BOT_SETTINGS')],
-      [Markup.button.callback('💰 Cek SMM', 'ADMIN_SMM')]
+      [
+        Markup.button.callback('💰 Cek SMM', 'ADMIN_SMM'),
+        Markup.button.callback('📦 Backup DB', 'ADMIN_BACKUP_DB')
+      ]
     ];
     
     if (ctx.callbackQuery) {
@@ -173,6 +191,13 @@ class AdminController {
              ])
          }).catch(() => {});
      }
+
+     if (action === 'ADMIN_MANUAL_CHECK') return AdminController.handleManualCheckMenu(ctx);
+     if (action.startsWith('APPROVE_MANUAL_')) return AdminController.handleApproveManualCheck(ctx, action.replace('APPROVE_MANUAL_', ''));
+     if (action.startsWith('RETRY_MANUAL_')) return AdminController.handleRetryManualCheck(ctx, action.replace('RETRY_MANUAL_', ''));
+     if (action.startsWith('REFUND_MANUAL_')) return AdminController.handleRefundManualCheck(ctx, action.replace('REFUND_MANUAL_', ''));
+     
+     if (action === 'ADMIN_BACKUP_DB') return AdminController.handleBackupDb(ctx);
 
      if (action === 'ADMIN_USER_MENU') {
          await ctx.editMessageText('👥 *KELOLA USER*\n\nPilih aksi di bawah ini:\n_Kamu dapat menggunakan Username/Telegram ID pada seluruh fitur ini._', {
@@ -403,8 +428,14 @@ class AdminController {
      if (action === 'ADMIN_FORCE_SUB') return ctx.scene.enter('ADMIN_FORCE_SUB_SCENE');
 
      if (action.startsWith('DEP_APPROVE_')) {
-         const refId = action.replace('DEP_APPROVE_', '');
+         const UserService = require('../services/user.service');
+         const isLocked = await UserService.isLocked(ctx.from.id);
+         if (isLocked) {
+             return ctx.answerCbQuery('Mohon tunggu sebentar...', { show_alert: true }).catch(() => {});
+         }
+         await UserService.setLock(ctx.from.id, 5); // 5s lock
          
+         const refId = action.replace('DEP_APPROVE_', '');
          const client = await db.pool.connect();
          try {
              await client.query('BEGIN');
@@ -420,7 +451,17 @@ class AdminController {
              }
              
              await client.query(`UPDATE deposits SET status = 'Approved', approved_at = CURRENT_TIMESTAMP, admin_id = $1 WHERE reference_id = $2`, [ctx.from.id, refId]);
-             await client.query(`UPDATE users SET balance = balance + $1 WHERE telegram_id = $2`, [deposit.amount, deposit.user_id]);
+             const userRes = await client.query('SELECT balance FROM users WHERE telegram_id = $1 FOR UPDATE', [deposit.user_id]);
+             if (userRes.rows.length > 0) {
+                 const balanceBefore = Math.floor(Number(userRes.rows[0].balance));
+                 const safeAmount = Math.floor(Number(deposit.amount));
+                 const balanceAfter = balanceBefore + safeAmount;
+                 await client.query('UPDATE users SET balance = $1 WHERE telegram_id = $2', [balanceAfter, deposit.user_id]);
+                 await client.query(`
+                    INSERT INTO balance_mutations (user_id, type, amount, balance_before, balance_after, description, reference_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 `, [deposit.user_id, 'Deposit', safeAmount, balanceBefore, balanceAfter, 'Deposit Approved via Admin', refId]);
+             }
              
              await client.query('COMMIT');
              client.release();
@@ -446,6 +487,13 @@ class AdminController {
      }
      
      if (action.startsWith('DEP_REJECT_')) {
+         const UserService = require('../services/user.service');
+         const isLocked = await UserService.isLocked(ctx.from.id);
+         if (isLocked) {
+             return ctx.answerCbQuery('Mohon tunggu sebentar...', { show_alert: true }).catch(() => {});
+         }
+         await UserService.setLock(ctx.from.id, 5); // 5s lock
+
          const refId = action.replace('DEP_REJECT_', '');
          const deposit = await DepositService.getDepositByRef(refId);
          if (!deposit || (deposit.status !== 'Pending' && deposit.status !== 'WAITING_APPROVAL')) {
@@ -467,6 +515,89 @@ class AdminController {
              });
          }
      }
+  }
+
+  static async handleBackupDb(ctx) {
+      if (ctx.callbackQuery) await ctx.editMessageText('⏳ Memulai proses backup PostgreSQL...').catch(()=>{});
+      try {
+          const fs = require('fs');
+          const path = require('path');
+          const db = require('../database');
+          
+          // Simple JSON export for tables
+          const tables = ['users', 'deposits', 'orders', 'refunds', 'balance_mutations', 'admin_logs'];
+          const backup = {};
+          for (const tbl of tables) {
+              const [rows] = await db.query(`SELECT * FROM ${tbl}`);
+              backup[tbl] = rows;
+          }
+          
+          const filename = `backup_db_${Date.now()}.json`;
+          const filePath = path.join(__dirname, '..', '..', filename);
+          fs.writeFileSync(filePath, JSON.stringify(backup, null, 2));
+          
+          await ctx.replyWithDocument({ source: filePath, filename });
+          fs.unlinkSync(filePath); // delete after sending
+          
+          if (ctx.callbackQuery) {
+              await ctx.editMessageText('✅ Backup berhasil dikirim.').catch(()=>{});
+          }
+      } catch(e) {
+          if (ctx.callbackQuery) {
+              await ctx.editMessageText(`❌ Gagal backup DB: ${e.message}`).catch(()=>{});
+          }
+      }
+  }
+
+  static async handleManualCheckMenu(ctx) {
+     const db = require('../database');
+     const [rows] = await db.query(`SELECT * FROM orders WHERE status = 'MANUAL_CHECK' ORDER BY id ASC LIMIT 5`);
+     if (!rows || rows.length === 0) {
+         return ctx.editMessageText('✅ Tidak ada order dalam status MANUAL_CHECK.', {
+             ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_MENU')]])
+         }).catch(()=>{});
+     }
+     
+     const { formatRupiah } = require('../utils/currency');
+     let ordersStr = `⚠️ *ORDER MANUAL CHECK*\n\n`;
+     rows.forEach(r => {
+        ordersStr += `ID: \`${r.id}\` | User: ${r.user_id}\nLayanan: ${r.service_name}\nHarga: ${formatRupiah(r.price)}\n\n`;
+     });
+     
+     const buttons = rows.map(r => [
+        Markup.button.callback(`✅ Selesai (Sukses) ID ${r.id}`, `APPROVE_MANUAL_${r.id}`),
+        Markup.button.callback(`💸 Refund ID ${r.id}`, `REFUND_MANUAL_${r.id}`)
+     ]);
+     buttons.push([Markup.button.callback('🔙 Kembali', 'ADMIN_MENU')]);
+     
+     return ctx.editMessageText(ordersStr, {
+         parse_mode: 'Markdown',
+         ...Markup.inlineKeyboard(buttons)
+     }).catch(()=>{});
+  }
+  
+  static async handleApproveManualCheck(ctx, id) {
+     const db = require('../database');
+     await db.query(`UPDATE orders SET status = 'Success' WHERE id = $1 AND status = 'MANUAL_CHECK'`, [id]);
+     await ctx.answerCbQuery('✅ Order ditandai Sukses.', { show_alert: true }).catch(()=>{});
+     return AdminController.handleManualCheckMenu(ctx);
+  }
+  
+  static async handleRefundManualCheck(ctx, id) {
+     const db = require('../database');
+     const RefundService = require('../services/refund.service');
+     const [rows] = await db.query(`SELECT * FROM orders WHERE id = $1 AND status = 'MANUAL_CHECK'`, [id]);
+     if (rows && rows.length > 0) {
+         const order = rows[0];
+         await db.query(`UPDATE orders SET status = 'Canceled' WHERE id = $1`, [id]);
+         await RefundService.processRefund(order.id, order.user_id, order.price, 'Manual Check Refund - Provider Timeout');
+         await ctx.answerCbQuery('✅ Saldo direfund ke user.', { show_alert: true }).catch(()=>{});
+     }
+     return AdminController.handleManualCheckMenu(ctx);
+  }
+  
+  static async handleRetryManualCheck(ctx, id) {
+     // Noop or future implementation
   }
 }
 

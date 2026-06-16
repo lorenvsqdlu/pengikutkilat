@@ -30,6 +30,8 @@ async function initDatabase() {
         fullname VARCHAR(255),
         balance BIGINT DEFAULT 0,
         lock_until TIMESTAMP NULL,
+        admin_login_attempts INTEGER DEFAULT 0,
+        admin_lock_until TIMESTAMP NULL,
         is_banned BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -40,6 +42,7 @@ async function initDatabase() {
         service_id INTEGER,
         service_name VARCHAR(255),
         api_order_id VARCHAR(50),
+        external_id VARCHAR(100),
         category VARCHAR(100),
         target TEXT,
         quantity INTEGER,
@@ -50,7 +53,9 @@ async function initDatabase() {
         start_count INTEGER DEFAULT 0,
         remains INTEGER DEFAULT 0,
         status VARCHAR(30) DEFAULT 'pending',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        refund_processed BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS refills (
@@ -83,7 +88,8 @@ async function initDatabase() {
         status VARCHAR(20) DEFAULT 'pending',
         retry_count INTEGER DEFAULT 0,
         smm_payload TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS settings (
@@ -103,8 +109,9 @@ async function initDatabase() {
         proof_image TEXT,
         admin_id BIGINT NULL,
         approved_at TIMESTAMP NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        paid_at TIMESTAMP NULL
+        paid_at TIMESTAMP NULL,
+        expires_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS banks (
@@ -120,8 +127,20 @@ async function initDatabase() {
         id SERIAL PRIMARY KEY,
         order_id INTEGER NOT NULL,
         user_id BIGINT NOT NULL,
-        amount DECIMAL(15,2) NOT NULL,
+        amount BIGINT NOT NULL,
         reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS balance_mutations (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        amount BIGINT NOT NULL,
+        balance_before BIGINT NOT NULL,
+        balance_after BIGINT NOT NULL,
+        description TEXT,
+        reference_id VARCHAR(100),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -138,6 +157,20 @@ async function initDatabase() {
         admin_id BIGINT NOT NULL,
         action VARCHAR(100) NOT NULL,
         details TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS user_sessions (
+        id VARCHAR(100) PRIMARY KEY,
+        data TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      
+      CREATE TABLE IF NOT EXISTS admin_sessions (
+        telegram_id BIGINT PRIMARY KEY,
+        session_token TEXT,
+        expires_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -191,7 +224,9 @@ class DatabaseParams {
             return [{ insertId: result.rows[0]?.id || null, affectedRows: result.rowCount }, []];
         }
     } catch (e) {
-        logger.error('[DATABASE ERROR] query failed: ' + e.message + ' | SQL: ' + pgSql);
+        if (!e.message.includes('ECONNREFUSED')) {
+            logger.error('[DATABASE ERROR] query failed: ' + e.message + ' | SQL: ' + pgSql);
+        }
         throw e;
     }
   }
@@ -206,7 +241,9 @@ class DatabaseParams {
         const result = await this.pool.query(pgSql, params);
         return result.rows[0];
     } catch (e) {
-        logger.error('[DATABASE ERROR] get failed: ' + e.message + ' | SQL: ' + pgSql);
+        if (!e.message.includes('ECONNREFUSED')) {
+            logger.error('[DATABASE ERROR] get failed: ' + e.message + ' | SQL: ' + pgSql);
+        }
         throw e;
     }
   }

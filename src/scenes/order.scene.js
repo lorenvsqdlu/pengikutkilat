@@ -458,6 +458,28 @@ const orderScene = new Scenes.WizardScene(
             return ctx.scene.leave();
           }
 
+          // RE-VALIDATE SERVICE AND PRICE
+          const services = smmService.getServices();
+          const latestService = services.find(s => s.service == orderState.selectedService.service);
+          
+          if (!latestService) {
+              await ctx.reply('❌ Layanan ini sudah tidak tersedia di provider atau sedang dinonaktifkan.');
+              return ctx.scene.leave();
+          }
+
+          const basePrice = parseFloat(latestService.rate || latestService.price);
+          const categoryName = latestService.category || '';
+          const calculated = await ProfitEngine.calculatePrice(basePrice, orderState.quantity, categoryName);
+          
+          if (calculated.sell_price !== orderState.totalPrice) {
+              await ctx.reply(`❌ Order dibatalkan. Terdapat perubahan harga pada layanan ini dari server (sebelumnya ${formatRupiah(orderState.totalPrice)}, sekarang ${formatRupiah(calculated.sell_price)}). Silakan ulangi pesanan.`);
+              return ctx.scene.leave();
+          }
+          
+          orderState.totalPrice = calculated.sell_price;
+          orderState.costPrice = calculated.cost_price;
+          orderState.profit = calculated.profit;
+
           const currentBalance = parseFloat(user.balance || 0);
           if (currentBalance < orderState.totalPrice) {
             await ctx.reply(`❌ Saldo tidak mencukupi untuk melakukan order ini.\nSaldo saat ini: ${formatRupiah(currentBalance)}`);
@@ -491,6 +513,9 @@ const orderScene = new Scenes.WizardScene(
           if (orderState.username) smmPayload.username = orderState.username;
           if (orderState.media) smmPayload.media = orderState.media;
           if (orderState.answer_number) smmPayload.answer_number = orderState.answer_number;
+          
+          // Anti Duplicate SMM Order
+          smmPayload.custom_id = orderId.toString();
 
           const QueueService = require('../services/queue.service');
           await QueueService.pushOrder({

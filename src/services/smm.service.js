@@ -13,6 +13,11 @@ class SMMService {
     this.servicesCacheTime = 0;
     this.CACHE_TTL = 10 * 60 * 1000; // 10 menit
     
+    // Provider Health Monitor
+    this.consecutiveErrors = 0;
+    this.isProviderDisabled = false;
+    this.disabledUntil = 0;
+
     if (this.apiUrl) {
       this.client = axios.create({
         baseURL: this.apiUrl,
@@ -28,6 +33,10 @@ class SMMService {
     if (!this.client) {
       throw new Error('SMM API URL tidak dikonfigurasi.');
     }
+    
+    if (this.isProviderDisabled && Date.now() < this.disabledUntil) {
+        throw new Error('SMM Provider ditangguhkan sementara karena terlalu banyak timeout/error.');
+    }
 
     try {
       const payload = {
@@ -37,12 +46,26 @@ class SMMService {
       };
 
       const response = await this.client.post(endpoint, payload);
+      
+      // Reset errors di sukses
+      this.consecutiveErrors = 0;
+      this.isProviderDisabled = false;
+      
       return response.data;
     } catch (error) {
       if (retries > 0) {
         logger.warn(`SMM API Request failed on ${endpoint}, retrying... (${retries} retries left)`);
         return this._request(endpoint, data, retries - 1);
       }
+      
+      this.consecutiveErrors += 1;
+      if (this.consecutiveErrors >= 5) { // Threshold 5 berurutan
+          this.isProviderDisabled = true;
+          this.disabledUntil = Date.now() + (10 * 60 * 1000); // Disable 10 min
+          logger.error('CRITICAL: Provider disabled due to 5 consecutive errors/timeouts');
+          // Should notify admin if possible, but here we just log
+      }
+      
       if (error.response) {
         logger.error(`SMM API Error Response [${error.response.status}] on ${endpoint}`, JSON.stringify(error.response.data));
         throw new Error(`SMM API Error: ${error.response.status} - Gagal mengambil data server.`);

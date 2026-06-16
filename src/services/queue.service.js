@@ -31,7 +31,7 @@ class QueueService {
     // Atomic pop for PostgreSQL to prevent race conditions across multiple instances
     const query = `
       UPDATE orders_queue 
-      SET status = 'processing' 
+      SET status = 'processing', updated_at = CURRENT_TIMESTAMP
       WHERE id = (
         SELECT id FROM orders_queue 
         WHERE status = 'pending' 
@@ -44,13 +44,23 @@ class QueueService {
     const [rows] = await db.query(query);
     if (rows && rows.length > 0) {
       const job = rows[0];
-      // Since our query wrapper might return something slightly different for UPDATE RETURNING, let's parse safely
       if (typeof job.smm_payload === 'string') {
           try { job.smm_payload = JSON.parse(job.smm_payload); } catch(e){}
       }
       return job;
     }
     return null;
+  }
+
+  static async recoverZombieOrders() {
+    const query = `
+      UPDATE orders_queue 
+      SET status = 'pending', updated_at = CURRENT_TIMESTAMP
+      WHERE status = 'processing' 
+      AND updated_at < NOW() - INTERVAL '15 minutes'
+    `;
+    const [result] = await db.query(query);
+    return result.affectedRows;
   }
 
   static async failOrder(id, retry_count) {

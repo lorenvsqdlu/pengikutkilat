@@ -23,6 +23,7 @@ const initServicesCron = require('./cron/services.cron');
 const startOrderWorker = require('./workers/orderWorker');
 const startStatusWorker = require('./workers/statusWorker');
 const startRefillWorker = require('./workers/refillWorker');
+const startReconciliationJob = require('./workers/financialReconciliation');
 
 const app = express();
 
@@ -82,6 +83,7 @@ app.listen(config.PORT, async () => {
           startOrderWorker(bot);
           startStatusWorker(bot);
           startRefillWorker(bot);
+          startReconciliationJob(bot);
           isWorkersStarted = true;
         }
 

@@ -53,21 +53,48 @@ async function processOrder(job) {
         
         // Check balance and deduct immediately to prevent race conditions
         const user = await UserService.getUser(user_id);
-        if (!user || parseFloat(user.balance) < parseFloat(price)) {
+        if (!user || user.balance < price) {
              await OrderService.updateOrderStatus(order_id, 'Canceled');
              throw new Error('Saldo tidak mencukupi saat proses dieksekusi.');
         }
 
+        const estimatedProviderCost = (job.base_price / 1000) * quantity;
+        try {
+            const providerBalanceRes = await smmService.getBalance();
+            if (providerBalanceRes && providerBalanceRes.status && providerBalanceRes.balance !== undefined) {
+               const pBalanceStr = providerBalanceRes.balance.toString().replace(/,/g, '');
+               const pBalance = parseFloat(pBalanceStr);
+               if (pBalance < estimatedProviderCost) {
+                   await OrderService.updateOrderStatus(order_id, 'Canceled');
+                   await QueueService.completeOrder(job.id);
+                   throw new Error('Layanan sedang tidak tersedia (Saldo server limit), silakan coba beberapa saat lagi.');
+               }
+            }
+        } catch(e) {
+            if (e.message.includes('Layanan sedang tidak tersedia')) throw e;
+        }
+
         // Deduct balance BEFORE hitting API
-        await UserService.updateBalance(user_id, -price);
+        await UserService.updateBalance(user_id, -price, 'Order', `Order SMM Service ${smm_payload.service}`, order_id.toString());
 
         let res;
         try {
             res = await smmService.createOrder(smm_payload);
         } catch (apiError) {
-            // Refund on critical API error
-            await UserService.updateBalance(user_id, price);
-            throw apiError;
+            // Is it a timeout or network error?
+            const isTimeout = ['ETIMEDOUT', 'ECONNRESET', '502', '503', '504'].some(code => apiError.message.includes(code) || (apiError.code && apiError.code.includes(code)));
+            
+            if (isTimeout) {
+                // Do not refund automatically for timeout. Mark for manual check.
+                await OrderService.updateOrderStatus(order_id, 'MANUAL_CHECK');
+                await QueueService.completeOrder(job.id);
+                try { if (bot) await bot.telegram.sendMessage(user_id, `⚠️ *Peringatan Timeout Provider*\nID Order: \`${order_id}\`\nSistem SMM kami sedang padat, order Anda sedang di-"Manual Check" oleh admin. Saldo tertahan sementara menunggu konfirmasi dari provider.`, {parse_mode: 'Markdown'}); } catch(e){}
+                throw new Error('Provider Timeout - MANUAL CHECK REQUIRED');
+            } else {
+                // Refund on critical API error that is defined
+                await UserService.updateBalance(user_id, price, 'Refund', `API Error Order ${order_id}`, order_id.toString());
+                throw apiError;
+            }
         }
 
         if (res && (res.order || res.id || res.status === 'success' || res.status === true)) {
@@ -98,7 +125,7 @@ async function processOrder(job) {
         } else {
             // SMM API returned logic error (e.g. invalid target, insufficient balance on provider)
             // MUST REFUND BALANCE!
-            await UserService.updateBalance(user_id, price);
+            await UserService.updateBalance(user_id, price, 'Refund', `SMM API Gagal Memproses Order ${order_id}`, order_id.toString());
             throw new Error(res.error || res.msg || 'SMM API gagal memproses order');
         }
     } catch (err) {
@@ -123,6 +150,23 @@ function startOrderWorker(telegramBot) {
     bot = telegramBot;
     recoverPendingOrders();
     
+    // Automatically recover zombie orders every 10 minutes (600000 ms)
+    setInterval(async () => {
+        try {
+            const recoveredCount = await QueueService.recoverZombieOrders();
+            if (recoveredCount > 0) {
+                logger.info(`[WORKER] Recovered ${recoveredCount} zombie orders`);
+            }
+            const DepositService = require('../services/deposit.service');
+            const expiredCount = await DepositService.expireDeposits();
+            if (expiredCount > 0) {
+                logger.info(`[WORKER] Expired ${expiredCount} deposits > 24 hours`);
+            }
+        } catch(e) {
+            logger.error(`[WORKER] Failed to recover zombie orders: ${e.message}`);
+        }
+    }, 600000);
+
     logger.info('[WORKER] Order Worker started.');
     setInterval(async () => {
         if (isProcessing) return;

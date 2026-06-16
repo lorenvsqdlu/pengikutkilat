@@ -150,9 +150,10 @@ const adminBalanceScene = new Scenes.WizardScene('ADMIN_BALANCE_SCENE',
     
     const isAdd = ctx.wizard.state.action === 'add';
     const delta = isAdd ? amount : -amount;
+    const desc = isAdd ? 'Topup Manual (Admin)' : 'Potongan Manual (Admin)';
     
     try {
-      const dbResult = await UserService.updateBalance(ctx.wizard.state.targetUserId, delta);
+      const dbResult = await UserService.updateBalance(ctx.wizard.state.targetUserId, delta, 'System', desc, 'ADMIN');
       if (dbResult.affectedRows === 0) {
         await ctx.reply('❌ User tidak ditemukan dalam sistem.');
         return ctx.scene.leave();

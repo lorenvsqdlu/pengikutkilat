@@ -31,7 +31,11 @@ setInterval(async () => {
            logger.info(`[STATUS WORKER] Added ${statusQueue.length} pending orders to status queue.`);
         }
     } catch (e) {
-        logger.error('[STATUS WORKER] Error fetching active orders', e);
+        if (e.code === 'ECONNREFUSED' || e.message.includes('ECONNREFUSED')) {
+            logger.error('[STATUS WORKER] Database connection refused. Retrying later...');
+        } else {
+            logger.error('[STATUS WORKER] Error fetching active orders', e);
+        }
     }
 }, 180000); // 3 minutes interval to fetch active orders
 
@@ -100,9 +104,8 @@ async function startStatusWorker(telegramBot) {
 
                                    const refundAmount = Math.floor((sellPrice / orderQuantity) * remains);
                                    if (refundAmount > 0) {
-                                       const refundId = await RefundService.createRefund(order.id, order.user_id, refundAmount, `Refund for status ${newStatus} with ${remains} remains`);
+                                       const refundId = await RefundService.processRefund(order.id, order.user_id, refundAmount, `Refund for status ${newStatus} with ${remains} remains`);
                                        if (refundId > 0) {
-                                           await UserService.updateBalance(order.user_id, refundAmount);
                                            logger.info(`[WORKER] Refund sukses untuk order ${order.id}: ${refundAmount} (Remains: ${remains})`);
                                            const refundMsg = `💸 *REFUND SALDO*\n━━━━━━━━━━━━━━━━━\n*ID Order API:* \`${order.api_order_id}\`\n*Status:* ${newStatus}\n*Sisa Target:* ${remains}\n*Nominal Refund:* ${formatRupiah(refundAmount)}\n\n_Saldo Anda telah berhasil dikembalikan ke akun._`;
                                            if (bot) bot.telegram.sendMessage(order.user_id, refundMsg, { parse_mode: 'Markdown' }).catch(()=>{});
