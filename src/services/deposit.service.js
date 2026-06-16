@@ -23,12 +23,12 @@ class DepositService {
   }
 
   static async updateDepositStatus(reference_id, status, admin_id = null) {
-    let query = `UPDATE deposits SET status = ?, paid_at = CURRENT_TIMESTAMP WHERE reference_id = ? AND status IN ('Pending', 'WAITING_APPROVAL')`;
+    let query = `UPDATE deposits SET status = ?, paid_at = CURRENT_TIMESTAMP WHERE reference_id = ? AND LOWER(status) IN ('pending', 'waiting_approval')`;
     let params = [status, reference_id];
     
     if (status === 'Approved' || status === 'Rejected' || status === 'REJECTED') {
         const dbStatus = status.toUpperCase() === 'REJECTED' ? 'Rejected' : 'Approved';
-        query = `UPDATE deposits SET status = ?, approved_at = CURRENT_TIMESTAMP, admin_id = ? WHERE reference_id = ? AND status IN ('Pending', 'WAITING_APPROVAL')`;
+        query = `UPDATE deposits SET status = ?, approved_at = CURRENT_TIMESTAMP, admin_id = ? WHERE reference_id = ? AND LOWER(status) IN ('pending', 'waiting_approval')`;
         params = [dbStatus, admin_id, reference_id];
     }
     

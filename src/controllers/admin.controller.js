@@ -102,7 +102,7 @@ class AdminController {
           const depositRes = await client.query('SELECT * FROM deposits WHERE reference_id = $1 FOR UPDATE', [refId]);
           const deposit = depositRes.rows[0];
           
-          if (!deposit || (deposit.status !== 'Pending' && deposit.status !== 'WAITING_APPROVAL')) {
+          if (!deposit || (deposit.status.toLowerCase() !== 'pending' && deposit.status.toLowerCase() !== 'waiting_approval')) {
               await client.query('ROLLBACK');
               client.release();
               return ctx.reply('❌ Deposit tidak ditemukan atau sudah diproses.');
@@ -213,9 +213,9 @@ class AdminController {
      }
 
      if (action === 'ADMIN_DEPOSIT_MENU') {
-         const pendingRows = await db.query("SELECT COUNT(*) as cnt FROM deposits WHERE status IN ('Pending', 'WAITING_APPROVAL')");
-         const approvedRows = await db.query("SELECT COUNT(*) as cnt FROM deposits WHERE status = 'Approved'");
-         const rejectedRows = await db.query("SELECT COUNT(*) as cnt FROM deposits WHERE status = 'Rejected'");
+         const pendingRows = await db.query("SELECT COUNT(*) as cnt FROM deposits WHERE LOWER(status) IN ('pending', 'waiting_approval')");
+         const approvedRows = await db.query("SELECT COUNT(*) as cnt FROM deposits WHERE LOWER(status) = 'approved'");
+         const rejectedRows = await db.query("SELECT COUNT(*) as cnt FROM deposits WHERE LOWER(status) = 'rejected'");
          
          const pendingCount = pendingRows[0][0].cnt;
          const approvedCount = approvedRows[0][0].cnt;
@@ -255,7 +255,7 @@ class AdminController {
      }
      
      if (action === 'ADMIN_DEPOSIT_HISTORY') {
-         const hist = await db.query("SELECT * FROM deposits WHERE status IN ('Approved', 'Rejected') ORDER BY update_at DESC, created_at DESC LIMIT 5");
+         const hist = await db.query("SELECT * FROM deposits WHERE LOWER(status) IN ('approved', 'rejected') ORDER BY update_at DESC, created_at DESC LIMIT 5");
          const deposits = hist[0];
          if (deposits.length === 0) {
              return ctx.editMessageText('Belum ada riwayat deposit.', {
@@ -273,46 +273,79 @@ class AdminController {
      }
 
      if (action === 'ADMIN_DEPOSIT_PENDING') {
-         const pending = await db.query("SELECT * FROM deposits WHERE status IN ('Pending', 'WAITING_APPROVAL') ORDER BY created_at ASC LIMIT 1");
-         const deposits = pending[0];
-         if (deposits.length === 0) {
-             return ctx.editMessageText('✅ Tidak ada deposit pending saat ini.', {
-                 ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]])
-             });
-         }
-         
-         const dep = deposits[0];
-         const dateFormatted = new Date(dep.created_at).toLocaleString('id-ID');
-         
-         let txt = `🧾 *Invoice:*\n\`${dep.reference_id}\`\n\n👤 *User:*\n${dep.user_id}\n\n💰 *Nominal:*\n${formatRupiah(dep.amount)}\n\n📅 *Tanggal:*\n${dateFormatted}\n\n📌 *Status:*\n${dep.status}`;
+         const logger = require('../utils/logger');
+         logger.info(`[DEPOSIT_PENDING_CLICKED] user_id=${ctx.from.id} callback_data=${action}`);
          
          try {
-             await ctx.deleteMessage();
-         } catch(e) {}
-         
-         const inlineKbd = [
-             [Markup.button.callback('✅ Setujui', `DEP_APPROVE_${dep.reference_id}`), Markup.button.callback('❌ Tolak', `DEP_REJECT_${dep.reference_id}`)],
-             [Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]
-         ];
-         
-         if (dep.proof_image && !dep.proof_image.startsWith('/upload')) {
+             const pending = await db.query("SELECT * FROM deposits WHERE LOWER(status) IN ('pending', 'waiting_approval') ORDER BY created_at ASC LIMIT 1");
+             const deposits = pending[0];
+             
+             logger.info(`[DEPOSIT_PENDING_FETCH] count=${deposits.length}`);
+             
+             if (deposits.length === 0) {
+                 try {
+                     return await ctx.editMessageText('📭 Tidak ada deposit pending saat ini.', {
+                         ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]])
+                     });
+                 } catch (e) {
+                     logger.error(`[DEPOSIT_PENDING_ERROR] edit failed: ${e.message}`);
+                     return await ctx.reply('📭 Tidak ada deposit pending saat ini.', {
+                         ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]])
+                     });
+                 }
+             }
+             
+             const dep = deposits[0];
+             const dateFormatted = new Date(dep.created_at).toLocaleString('id-ID');
+             const safeAmount = dep.amount || 0;
+             
+             let txt = `🧾 *Invoice:*\n\`${dep.reference_id || 'UNKNOWN'}\`\n\n👤 *User:*\n${dep.user_id || 'UNKNOWN'}\n\n💰 *Nominal:*\n${formatRupiah(safeAmount)}\n\n📅 *Tanggal:*\n${dateFormatted}\n\n📌 *Status:*\n${dep.status || 'UNKNOWN'}`;
+             
+             // Validate callback lengths
+             const cbApprove = `DEP_APPROVE_${dep.reference_id}`;
+             const cbReject = `DEP_REJECT_${dep.reference_id}`;
+             
+             let inlineKbd = [];
+             if (Buffer.byteLength(cbApprove, 'utf8') <= 64 && Buffer.byteLength(cbReject, 'utf8') <= 64) {
+                inlineKbd.push([Markup.button.callback('✅ Setujui', cbApprove), Markup.button.callback('❌ Tolak', cbReject)]);
+             } else {
+                logger.error(`[DEPOSIT_PENDING_ERROR] callback data too long for ref ${dep.reference_id}`);
+                txt += `\n\n⚠️ *ID Terlalu Panjang untuk Action*`;
+             }
+             inlineKbd.push([Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]);
+             
              try {
-                return await ctx.replyWithPhoto(dep.proof_image, {
-                    caption: txt,
-                    parse_mode: 'Markdown',
-                    reply_markup: {
-                        inline_keyboard: inlineKbd
-                    }
-                });
+                 await ctx.deleteMessage();
              } catch(e) {}
+             
+             if (dep.proof_image && !dep.proof_image.startsWith('/upload')) {
+                 try {
+                    return await ctx.replyWithPhoto(dep.proof_image, {
+                        caption: txt,
+                        parse_mode: 'Markdown',
+                        reply_markup: {
+                            inline_keyboard: inlineKbd
+                        }
+                    });
+                 } catch(e) {
+                    logger.error(`[DEPOSIT_PENDING_ERROR] replyWithPhoto failed: ${e.message}`);
+                 }
+             }
+             
+             return await ctx.reply(txt, {
+                  parse_mode: 'Markdown',
+                  reply_markup: {
+                      inline_keyboard: inlineKbd
+                  }
+             });
+         } catch (e) {
+             logger.error(`[DEPOSIT_PENDING_ERROR] error=${e.message}`);
+             try {
+                 return await ctx.reply('❌ Terjadi kesalahan sistem saat mengambil data deposit.', {
+                     ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'ADMIN_DEPOSIT_MENU')]])
+                 });
+             } catch (err) {}
          }
-         
-         return await ctx.reply(txt, {
-              parse_mode: 'Markdown',
-              reply_markup: {
-                  inline_keyboard: inlineKbd
-              }
-         });
      }
      
      if (action === 'ADMIN_STATS') {
@@ -445,7 +478,7 @@ class AdminController {
              const updateRes = await client.query(`
                 UPDATE deposits 
                 SET status = 'Approved', approved_at = CURRENT_TIMESTAMP, admin_id = $1 
-                WHERE reference_id = $2 AND status IN ('Pending', 'WAITING_APPROVAL')
+                WHERE reference_id = $2 AND LOWER(status) IN ('pending', 'waiting_approval')
                 RETURNING *
              `, [ctx.from.id, refId]);
              
@@ -509,7 +542,7 @@ class AdminController {
          await ctx.answerCbQuery('Membuka menu tolakan...').catch(()=>({}));
          const refId = action.replace('DEP_REJECT_', '');
          const deposit = await DepositService.getDepositByRef(refId);
-         if (!deposit || (deposit.status !== 'Pending' && deposit.status !== 'WAITING_APPROVAL')) {
+         if (!deposit || (deposit.status.toLowerCase() !== 'pending' && deposit.status.toLowerCase() !== 'waiting_approval')) {
              return ctx.reply('❌ Deposit tidak ditemukan atau sudah diproses.');
          }
          return ctx.scene.enter('REJECT_DEPOSIT_SCENE', { reference_id: refId });

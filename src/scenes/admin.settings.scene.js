@@ -17,14 +17,20 @@ const adminSetWelcomeScene = new Scenes.WizardScene(
         const isEnabled = await AdminService.getSetting('welcome_enabled') === 'true';
         const message = await AdminService.getSetting('welcome_message') || 'Halo {first_name}';
         
-        await ctx.reply(`👋 <b>PENGATURAN WELCOME MESSAGE</b>\n\nStatus: ${isEnabled ? '✅ Aktif' : '❌ Nonaktif'}\n\nPesan Saat Ini:\n${escapeHtml(message)}\n\nPilih aksi di bawah ini:`, {
+        const renderData = [`👋 <b>PENGATURAN WELCOME MESSAGE</b>\n\nStatus: ${isEnabled ? '✅ Aktif' : '❌ Nonaktif'}\n\nPesan Saat Ini:\n${escapeHtml(message)}\n\nPilih aksi di bawah ini:`, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([
                 [Markup.button.callback(isEnabled ? '❌ Nonaktifkan' : '✅ Aktifkan', 'TOGGLE_WELCOME')],
                 [Markup.button.callback('✏️ Ubah Pesan Welcome', 'EDIT_WELCOME')],
                 [Markup.button.callback('🔙 Kembali', 'CANCEL_SCENE')] // Changed to back
             ])
-        });
+        }];
+        
+        if (ctx.callbackQuery) {
+            await ctx.editMessageText(...renderData).catch(() => ctx.reply(...renderData));
+        } else {
+            await ctx.reply(...renderData);
+        }
         return ctx.wizard.next();
     } catch (e) {
         ctx.scene.leave();
@@ -54,8 +60,8 @@ const adminSetWelcomeScene = new Scenes.WizardScene(
             if (action === 'TOGGLE_WELCOME') {
                 const isEnabled = await AdminService.getSetting('welcome_enabled') === 'true';
                 await AdminService.setSetting('welcome_enabled', isEnabled ? 'false' : 'true');
-                await ctx.editMessageText(`✅ Welcome message berhasil di${isEnabled ? 'nonaktifkan' : 'aktifkan'}.`);
-                return ctx.scene.leave();
+                await ctx.answerCbQuery('✅ Berhasil diperbarui.').catch(() => {});
+                return ctx.scene.reenter();
             }
             
             if (action === 'EDIT_WELCOME') {
@@ -99,7 +105,7 @@ const adminSetWelcomeScene = new Scenes.WizardScene(
               
               await AdminService.setSetting('welcome_message', txt);
               await ctx.reply('✅ Pesan welcome berhasil disimpan!');
-              return ctx.scene.leave();
+              return ctx.scene.reenter();
           }
       } catch (e) {
           ctx.scene.leave();
@@ -118,14 +124,20 @@ const adminForceSubScene = new Scenes.WizardScene(
         const isEnabled = await AdminService.getSetting('force_subscribe_enabled') === 'true';
         const channel = await AdminService.getSetting('force_subscribe_channel') || 'Belum diset';
         
-        await ctx.reply(`🔒 <b>PENGATURAN FORCE SUBSCRIBE</b>\n\nStatus: ${isEnabled ? '✅ Aktif' : '❌ Nonaktif'}\nChannel: <code>${escapeHtml(channel)}</code>\n\nPilih aksi di bawah ini:`, {
+        const renderData = [`🔒 <b>PENGATURAN FORCE SUBSCRIBE</b>\n\nStatus: ${isEnabled ? '✅ Aktif' : '❌ Nonaktif'}\nChannel: <code>${escapeHtml(channel)}</code>\n\nPilih aksi di bawah ini:`, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([
                 [Markup.button.callback(isEnabled ? '❌ Nonaktifkan' : '✅ Aktifkan', 'TOGGLE_FS')],
                 [Markup.button.callback('✏️ Set Username/ID Channel', 'EDIT_FS_CHANNEL')],
                 [Markup.button.callback('🔙 Kembali', 'CANCEL_SCENE')]
             ])
-        });
+        }];
+        
+        if (ctx.callbackQuery) {
+            await ctx.editMessageText(...renderData).catch(() => ctx.reply(...renderData));
+        } else {
+            await ctx.reply(...renderData);
+        }
         return ctx.wizard.next();
     } catch (e) {
         ctx.scene.leave();
@@ -154,8 +166,8 @@ const adminForceSubScene = new Scenes.WizardScene(
             if (action === 'TOGGLE_FS') {
                 const isEnabled = await AdminService.getSetting('force_subscribe_enabled') === 'true';
                 await AdminService.setSetting('force_subscribe_enabled', isEnabled ? 'false' : 'true');
-                await ctx.editMessageText(`✅ Force subscribe berhasil di${isEnabled ? 'nonaktifkan' : 'aktifkan'}.`);
-                return ctx.scene.leave();
+                await ctx.answerCbQuery('✅ Berhasil diperbarui.').catch(() => {});
+                return ctx.scene.reenter();
             }
             
             if (action === 'EDIT_FS_CHANNEL') {
@@ -197,7 +209,7 @@ const adminForceSubScene = new Scenes.WizardScene(
 
               await AdminService.setSetting('force_subscribe_channel', txt);
               await ctx.reply('✅ Channel force subscribe berhasil dikonfigurasi!');
-              return ctx.scene.leave();
+              return ctx.scene.reenter();
           }
       } catch (e) {
           ctx.scene.leave();

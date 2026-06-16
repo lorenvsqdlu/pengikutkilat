@@ -15,6 +15,36 @@ const formatRupiah = (angka) => {
   }).format(angka);
 };
 
+// Helper for Telegram button text sanitization
+const sanitizeTelegramText = (text) => {
+    if (text === null || typeof text === 'undefined') return '';
+    let str = String(text);
+    // Remove control characters
+    str = str.replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    // Remove null bytes
+    str = str.replace(/\0/g, '');
+    try {
+        str = Buffer.from(str, 'utf8').toString('utf8');
+    } catch (e) {}
+    return str.trim();
+};
+
+const cleanAndValidateButtons = (buttons) => {
+    return buttons.map(row => {
+        return row.filter(btn => {
+            if (!btn || !btn.text || typeof btn.text !== 'string') return false;
+            let text = btn.text.trim();
+            if (text.length === 0) return false;
+            try { 
+                const bufStr = Buffer.from(btn.text, 'utf8').toString('utf8');
+                if (bufStr !== btn.text) return false;
+            } catch (e) { return false; }
+            if (btn.callback_data && Buffer.byteLength(btn.callback_data, 'utf8') > 64) return false;
+            return true; // Valid button
+        });
+    }).filter(row => row.length > 0); // Remove empty rows
+};
+
 // Simple in-memory lock for anti double submit
 const orderLocks = new Set();
 
@@ -93,16 +123,25 @@ const orderScene = new Scenes.WizardScene(
     
     let hasLainnya = false;
     groupedServices.forEach(g => {
-        if (g.platform === 'Lainnya') {
-            hasLainnya = g.services.length > 0;
-            return;
-        }
-        if (g.services.length > 0) {
-            row.push(Markup.button.callback(g.platform, `PLATFORM_${g.platform}`));
-            if (row.length === 2) {
-                buttons.push(row);
-                row = [];
+        try {
+            const platName = sanitizeTelegramText(g.platform);
+            if (!platName) return; // Skip invalid platform
+            
+            if (platName === 'Lainnya') {
+                hasLainnya = g.services.length > 0;
+                return;
             }
+            if (g.services.length > 0) {
+                const cbData = `PLATFORM_${g.platform}`;
+                if (cbData.length > 64) return; // Safe callback
+                row.push(Markup.button.callback(platName.substring(0, 40), cbData));
+                if (row.length === 2) {
+                    buttons.push(row);
+                    row = [];
+                }
+            }
+        } catch (e) {
+            console.error("[INVALID PLATFORM NAME]", g.platform, e.message);
         }
     });
     
@@ -116,7 +155,7 @@ const orderScene = new Scenes.WizardScene(
     
     await sendOrEdit(ctx, '🛍️ *Pilih Platform*', {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons)
+      ...Markup.inlineKeyboard(cleanAndValidateButtons(buttons))
     });
     return ctx.wizard.next();
   },
@@ -149,7 +188,7 @@ const orderScene = new Scenes.WizardScene(
             }
             
             if (platformName.toLowerCase().includes('twitter') || platformName.toLowerCase().includes('x')) {
-                logger.info(`[Twitter Debug]\ncallback=${action}\nnormalized=${platformName}\nservices_found=${platformData ? platformData.services.length : 0}`);
+                logger.info(`[TWITTER]\nplatform found\ncallback=${action}\nnormalized=${platformName}\nservices_found=${platformData ? platformData.services.length : 0}`);
                 if (platformData && platformData.services.length > 0) {
                    // stringify try catch to prevent circular crash
                    try {
@@ -178,15 +217,21 @@ const orderScene = new Scenes.WizardScene(
             
             let hasCatLainnya = false;
             categories.forEach(cat => {
-                const safeCat = cat ? String(cat) : 'Lainnya';
-                if (safeCat === 'Lainnya') { 
-                    hasCatLainnya = true; 
-                    return; 
+                try {
+                    let safeCat = sanitizeTelegramText(cat);
+                    if (!safeCat) safeCat = 'Lainnya';
+                    
+                    if (safeCat === 'Lainnya') { 
+                        hasCatLainnya = true; 
+                        return; 
+                    }
+                    const callbackData = `CAT_${catIndex++}`;
+                    if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
+                    ctx.wizard.state.catMap[callbackData] = safeCat; // internal mapping can keep as is, but safeCat is better
+                    buttons.push([Markup.button.callback(safeCat.substring(0, 40), callbackData)]);
+                } catch (e) {
+                    console.error("[INVALID CATEGORY NAME]", cat, e.message);
                 }
-                const callbackData = `CAT_${catIndex++}`;
-                if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
-                ctx.wizard.state.catMap[callbackData] = safeCat;
-                buttons.push([Markup.button.callback(safeCat.substring(0, 40), callbackData)]);
             });
             
             if (hasCatLainnya) {
@@ -199,8 +244,9 @@ const orderScene = new Scenes.WizardScene(
             buttons.push([Markup.button.callback('🔙 Kembali', 'BACK_TO_PLATS')]);
             buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
 
+            const finalButtons = cleanAndValidateButtons(buttons);
             await sendOrEdit(ctx, `Pilih Kategori ${platformName}:`, {
-              ...Markup.inlineKeyboard(buttons)
+              ...Markup.inlineKeyboard(finalButtons)
             });
             return ctx.wizard.next();
         } catch (e) {
@@ -276,29 +322,70 @@ const orderScene = new Scenes.WizardScene(
             ctx.wizard.state.availableServices = filteredServices;
             const ProfitEngine = require('../services/profit.engine');
             
+            let servicesRendered = 0;
+            let servicesSkipped = 0;
+
             const buttons = [];
             for (const s of filteredServices) {
-                if (!s.service) {
-                    logger.warn(`[SERVICE DATA WARNING] Terdeteksi service tanpa ID:`, s);
-                    continue;
+                try {
+                    if (!s.service) {
+                        logger.warn(`[SERVICE DATA WARNING] Terdeteksi service tanpa ID:`, s);
+                        servicesSkipped++;
+                        continue;
+                    }
+                    const basePrice = parseFloat(s.price || s.rate || 0);
+                    const p = await ProfitEngine.calculatePrice(basePrice, 1000, s.category);
+                    
+                    let safeName = '';
+                    if (s.name === null || typeof s.name === 'undefined') {
+                        safeName = `Layanan #${s.service}`;
+                    } else {
+                        safeName = sanitizeTelegramText(s.name);
+                        if (safeName === '') {
+                            console.error(`[SERVICE SKIPPED]\nid=${s.service}\nreason=invalid utf8`);
+                            servicesSkipped++;
+                            continue;
+                        }
+                    }
+                    
+                    const label = `${safeName.substring(0, 40)} | ${formatRupiah(p.sell_price)}/K`;
+                    let cbData = `SERVICE_${s.service}`;
+                    if (Buffer.byteLength(cbData, 'utf8') > 64) {
+                        logger.warn(`[CALLBACK DATA WARNING] Callback terlalu panjang: ${cbData}`);
+                        cbData = `SERVICE_${s.service}`.substring(0, 64);
+                    }
+                    buttons.push([Markup.button.callback(label, cbData)]);
+                    servicesRendered++;
+                } catch (e) {
+                    servicesSkipped++;
+                    console.error("[INVALID SERVICE NAME]", s.service, JSON.stringify(s.name), e.message);
                 }
-                const basePrice = parseFloat(s.price || s.rate || 0);
-                const p = await ProfitEngine.calculatePrice(basePrice, 1000, s.category);
-                const safeName = s.name ? String(s.name) : `Service ${s.service}`;
-                const label = `${safeName.substring(0, 40)} | ${formatRupiah(p.sell_price)}/K`;
-                let cbData = `SERVICE_${s.service}`;
-                if (Buffer.byteLength(cbData, 'utf8') > 64) {
-                    logger.warn(`[CALLBACK DATA WARNING] Callback terlalu panjang: ${cbData}`);
-                    cbData = `SERVICE_${s.service}`.substring(0, 64);
-                }
-                buttons.push([Markup.button.callback(label, cbData)]);
+            }
+            
+            logger.info(`[TWITTER] services fetched = ${filteredServices.length}`);
+            logger.info(`[TWITTER] services rendered = ${servicesRendered}`);
+            logger.info(`[TWITTER] services skipped = ${servicesSkipped}`);
+            
+            if (buttons.length === 0) {
+                await sendOrEdit(ctx, 'Maaf, ada kendala render layanan untuk kategori ini.');
+                return ctx.scene.leave();
             }
             
             buttons.push([Markup.button.callback('🔙 Kembali', `PLATFORM_${ctx.wizard.state.order.platform}`)]);
             buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
 
+            const finalButtons = cleanAndValidateButtons(buttons);
+            if (finalButtons.length === 0 || (finalButtons.length <= 2 && servicesRendered > 0)) {
+                // If only back/cancel buttons remain (or empty) but we rendered some
+                // they might have been stripped by the validator
+                if (finalButtons.length === 0) {
+                    await sendOrEdit(ctx, 'Maaf, gagal menampilkan layanan karena error format.');
+                    return ctx.scene.leave();
+                }
+            }
+
             await sendOrEdit(ctx, `Layanan dalam ${selectedCategory}:`, {
-                ...Markup.inlineKeyboard(buttons)
+                ...Markup.inlineKeyboard(finalButtons)
             });
             return ctx.wizard.next();
 

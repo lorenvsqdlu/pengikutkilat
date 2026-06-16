@@ -106,7 +106,7 @@ const rejectDepositScene = new Scenes.WizardScene(
         
         try {
             const deposit = await DepositService.getDepositByRef(refId);
-            if(!deposit || (deposit.status !== 'Pending' && deposit.status !== 'WAITING_APPROVAL')) {
+            if(!deposit || (deposit.status.toLowerCase() !== 'pending' && deposit.status.toLowerCase() !== 'waiting_approval')) {
                 await ctx.reply('❌ Deposit tidak ditemukan atau sudah diproses.');
                 return ctx.scene.leave();
             }
