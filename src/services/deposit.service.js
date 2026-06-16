@@ -3,12 +3,16 @@ const db = require('../database');
 class DepositService {
   static async createDeposit(data) {
     const { user_id, reference_id, amount, fee, status, payment_method, pay_url, proof_image } = data;
+    
+    const safeAmount = Math.floor(Number(amount || 0));
+    const safeFee = Math.floor(Number(fee || 0));
+
     const query = `
       INSERT INTO deposits (user_id, reference_id, amount, fee, status, payment_method, pay_url, proof_image)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `;
     const [result] = await db.query(query, [
-      user_id, reference_id, amount, fee || 0, status || 'Pending', payment_method, pay_url, proof_image || null
+      user_id, reference_id, safeAmount, safeFee, status || 'Pending', payment_method, pay_url, proof_image || null
     ]);
     return result.insertId;
   }
