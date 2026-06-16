@@ -147,8 +147,15 @@ const orderScene = new Scenes.WizardScene(
             platformData = groupedServices.find(g => g.platform.toLowerCase().replace(/[^a-z]/g, '') === normReq);
         }
         
+        if (platformName.toLowerCase().includes('twitter') || platformName.toLowerCase().includes('x')) {
+            logger.info(`[Twitter Debug] callback=${action} normalized=${platformName} services_found=${platformData ? platformData.services.length : 0}`);
+            if (platformData && platformData.services.length > 0) {
+               logger.info(`[Twitter Debug] first_service=${JSON.stringify(platformData.services[0])}`);
+            }
+        }
+        
         if (!platformData || platformData.services.length === 0) {
-            await sendOrEdit(ctx, '❌ Layanan untuk platform ini tidak tersedia.');
+            await sendOrEdit(ctx, `⚠️ Layanan ${platformName} belum tersedia.`);
             return ctx.scene.leave();
         }
 
@@ -162,7 +169,7 @@ const orderScene = new Scenes.WizardScene(
         
         let hasCatLainnya = false;
         categories.forEach(cat => {
-            const safeCat = cat || 'Lainnya';
+            const safeCat = cat ? String(cat) : 'Lainnya';
             if (safeCat === 'Lainnya') { 
                 hasCatLainnya = true; 
                 return; 
@@ -193,7 +200,7 @@ const orderScene = new Scenes.WizardScene(
       await ctx.answerCbQuery().catch(() => {});
     } catch (err) {
       const logger = require('../utils/logger');
-      logger.error(`[CALLBACK ERROR] Step 2 failed:`, err.message);
+      logger.error(`[CALLBACK ERROR] Step 2 failed: ${err.message}\n${err.stack}`);
       await sendOrEdit(ctx, '❌ Terjadi kesalahan saat memuat layanan. Silakan coba kembali beberapa saat lagi.').catch(() => {});
       return ctx.scene.leave();
     }
@@ -254,13 +261,25 @@ const orderScene = new Scenes.WizardScene(
             ctx.wizard.state.availableServices = filteredServices;
             const ProfitEngine = require('../services/profit.engine');
             
-            const buttons = await Promise.all(filteredServices.map(async s => {
+            const buttons = [];
+            for (const s of filteredServices) {
+                if (!s.service) {
+                    logger.warn(`[SERVICE DATA WARNING] Terdeteksi service tanpa ID:`, s);
+                    continue;
+                }
                 const basePrice = parseFloat(s.price || s.rate || 0);
                 const p = await ProfitEngine.calculatePrice(basePrice, 1000, s.category);
-                const safeName = s.name || `Service ${s.service}`;
-                return [Markup.button.callback(`${safeName.substring(0, 40)} | ${formatRupiah(p.sell_price)}/K`, `SERVICE_${s.service}`)];
-            }));
+                const safeName = s.name ? String(s.name) : `Service ${s.service}`;
+                const label = `${safeName.substring(0, 40)} | ${formatRupiah(p.sell_price)}/K`;
+                let cbData = `SERVICE_${s.service}`;
+                if (Buffer.byteLength(cbData, 'utf8') > 64) {
+                    logger.warn(`[CALLBACK DATA WARNING] Callback terlalu panjang: ${cbData}`);
+                    cbData = `SERVICE_${s.service}`.substring(0, 64);
+                }
+                buttons.push([Markup.button.callback(label, cbData)]);
+            }
             
+            buttons.push([Markup.button.callback('🔙 Kembali', `PLATFORM_${ctx.wizard.state.order.platform}`)]);
             buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
 
             await sendOrEdit(ctx, `Layanan dalam ${selectedCategory}:`, {
@@ -270,8 +289,8 @@ const orderScene = new Scenes.WizardScene(
 
         } catch (error) {
             const logger = require('../utils/logger');
-            logger.error(`[CALLBACK ERROR] Step 3 category failed:`, error.message);
-            await sendOrEdit(ctx, 'Terjadi kesalahan saat mengambil layanan SMM. Silakan coba menu lagi (Cache kosong/Timeout).');
+            logger.error(`[CALLBACK ERROR] Step 3 category failed: ${error.message}\n${error.stack}`);
+            await sendOrEdit(ctx, '❌ Terjadi kesalahan saat mengambil layanan SMM. Silakan coba menu lagi.').catch(()=>({}));
             return ctx.scene.leave();
         }
     }
