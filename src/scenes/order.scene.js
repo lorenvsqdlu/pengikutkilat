@@ -15,6 +15,12 @@ const formatRupiah = (angka) => {
   }).format(angka);
 };
 
+// Helper untuk memotong UTF-8 dengan aman (tidak memecah surrogate pair/emoji)
+const truncateSafe = (str, len) => {
+    if (!str) return '';
+    return Array.from(String(str)).slice(0, len).join('');
+};
+
 // Helper for Telegram button text sanitization
 const sanitizeTelegramText = (text) => {
     if (text === null || typeof text === 'undefined') return '';
@@ -134,7 +140,7 @@ const orderScene = new Scenes.WizardScene(
             if (g.services.length > 0) {
                 const cbData = `PLATFORM_${g.platform}`;
                 if (cbData.length > 64) return; // Safe callback
-                row.push(Markup.button.callback(platName.substring(0, 40), cbData));
+                row.push(Markup.button.callback(truncateSafe(platName, 40), cbData));
                 if (row.length === 2) {
                     buttons.push(row);
                     row = [];
@@ -156,6 +162,9 @@ const orderScene = new Scenes.WizardScene(
     await sendOrEdit(ctx, '🛍️ *Pilih Platform*', {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard(cleanAndValidateButtons(buttons))
+    }).catch(err => {
+        const logger = require('../utils/logger');
+        logger.error(`[TELEGRAM_RENDER_ERROR] Step 1 Failed: ${err.message}`);
     });
     return ctx.wizard.next();
   },
@@ -169,99 +178,135 @@ const orderScene = new Scenes.WizardScene(
       const action = ctx.callbackQuery.data;
       if (action === 'CANCEL') return handleCancel(ctx);
       
+      let platformName = ctx.wizard.state.order.platform;
+      let page = 0;
+
       if (action.startsWith('PLATFORM_')) {
         await ctx.answerCbQuery().catch(() => {});
-        const platformName = action.replace('PLATFORM_', '');
+        platformName = action.replace('PLATFORM_', '');
         ctx.wizard.state.order.platform = platformName;
-        
-        try {
-            const logger = require('../utils/logger');
-            logger.info(`[PLATFORM CLICK] User ${ctx.from.id} chose platform ${platformName}`);
-            
-            const groupedServices = smmService.getGroupedServices();
-            let platformData = groupedServices.find(g => g.platform === platformName);
-            
-            // Fallback normalizer
-            if (!platformData) {
-                const normReq = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
-                platformData = groupedServices.find(g => g.platform.toLowerCase().replace(/[^a-z0-9]/g, '') === normReq);
-            }
-            
-            if (platformName.toLowerCase().includes('twitter') || platformName.toLowerCase().includes('x')) {
-                logger.info(`[TWITTER]\nplatform found\ncallback=${action}\nnormalized=${platformName}\nservices_found=${platformData ? platformData.services.length : 0}`);
-                if (platformData && platformData.services.length > 0) {
-                   // stringify try catch to prevent circular crash
-                   try {
-                       logger.info(`first_service=${JSON.stringify(platformData.services[0])}`);
-                   } catch(e) {
-                       logger.info(`first_service=[Circular/Unserializable Data]`);
-                   }
-                }
-            }
-            
-            if (!platformData || platformData.services.length === 0) {
-                await sendOrEdit(ctx, `⚠️ Layanan ${platformName} belum tersedia.`);
-                return ctx.scene.leave();
-            }
-
-            // Ambil unik kategori pada platform tersebut
-            const categoriesSet = new Set();
-            platformData.services.forEach(s => {
-                if (s && s.category) categoriesSet.add(s.category);
-                else categoriesSet.add('Lainnya');
-            });
-            const categories = Array.from(categoriesSet).slice(0, 15);
-
-            const buttons = [];
-            let catIndex = 0;
-            
-            let hasCatLainnya = false;
-            categories.forEach(cat => {
-                try {
-                    let safeCat = sanitizeTelegramText(cat);
-                    if (!safeCat) safeCat = 'Lainnya';
-                    
-                    if (safeCat === 'Lainnya') { 
-                        hasCatLainnya = true; 
-                        return; 
-                    }
-                    const callbackData = `CAT_${catIndex++}`;
-                    if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
-                    ctx.wizard.state.catMap[callbackData] = safeCat; // internal mapping can keep as is, but safeCat is better
-                    buttons.push([Markup.button.callback(safeCat.substring(0, 40), callbackData)]);
-                } catch (e) {
-                    console.error("[INVALID CATEGORY NAME]", cat, e.message);
-                }
-            });
-            
-            if (hasCatLainnya) {
-                const callbackData = `CAT_${catIndex++}`;
-                if (!ctx.wizard.state.catMap) ctx.wizard.state.catMap = {};
-                ctx.wizard.state.catMap[callbackData] = 'Lainnya';
-                buttons.push([Markup.button.callback('Lainnya', callbackData)]);
-            }
-
-            buttons.push([Markup.button.callback('🔙 Kembali', 'BACK_TO_PLATS')]);
-            buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
-
-            const finalButtons = cleanAndValidateButtons(buttons);
-            await sendOrEdit(ctx, `Pilih Kategori ${platformName}:`, {
-              ...Markup.inlineKeyboard(finalButtons)
-            });
-            return ctx.wizard.next();
-        } catch (e) {
-            const logger = require('../utils/logger');
-            logger.error(`[Twitter/Threads Debug Error] stack=${e.stack}`);
-            await sendOrEdit(ctx, `❌ Terjadi kesalahan saat memuat layanan. Error: ${e.message}`);
-            return ctx.scene.leave();
-        }
+      } else if (action === 'BACK_TO_PLATS') {
+        // Handled in step 3 but if triggered here
+      } else if (action.startsWith('CATPAGE_')) {
+        await ctx.answerCbQuery().catch(() => {});
+        page = parseInt(action.replace('CATPAGE_', ''), 10) || 0;
+      } else {
+         await ctx.answerCbQuery().catch(() => {});
+         return; // Unhandled
       }
-      
-      // Unhandled callbacks (e.g. from previous steps) must be answered to avoid frozen button
-      await ctx.answerCbQuery().catch(() => {});
+        
+      try {
+          const logger = require('../utils/logger');
+          logger.info(`[PLATFORM_SELECTED]\nplatform=${platformName}\npage=${page}`);
+          
+          const groupedServices = smmService.getGroupedServices();
+          let platformData = groupedServices.find(g => g.platform === platformName);
+          
+          let normalizedUsed = platformName;
+          // Fallback normalizer
+          if (!platformData) {
+              const normReq = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
+              normalizedUsed = normReq;
+              platformData = groupedServices.find(g => g.platform.toLowerCase().replace(/[^a-z0-9]/g, '') === normReq);
+          }
+
+          logger.info(`[PLATFORM_NORMALIZED]\nplatform=${normalizedUsed}`);
+          
+          if (!platformData || !platformData.services || platformData.services.length === 0) {
+              logger.error(`[PLATFORM_ERROR]\nplatform=${platformName}\nreason=Data platform kosong atau tidak ditemukan`);
+              await sendOrEdit(ctx, `⚠️ Layanan ${platformName} belum tersedia.`);
+              return ctx.scene.leave();
+          }
+
+          logger.info(`[SERVICES_FOUND]\ncount=${platformData.services.length}`);
+
+          // Ambil unik kategori pada platform tersebut
+          const categoriesSet = new Set();
+          platformData.services.forEach(s => {
+              if (s && s.category) categoriesSet.add(s.category);
+              else categoriesSet.add('Lainnya');
+          });
+          
+          // Pisahkan "Lainnya" agar ada di akhir jika ada (atau skip jika tidak ada)
+          let categories = Array.from(categoriesSet);
+          let hasCatLainnya = false;
+          if (categories.includes('Lainnya')) {
+              hasCatLainnya = true;
+              categories = categories.filter(c => c !== 'Lainnya');
+          }
+          
+          categories.sort(); // Optional sorting by alphabetical
+
+          // Mapping for callback state
+          if (!ctx.wizard.state.catMapList) ctx.wizard.state.catMapList = [];
+
+          const ITEMS_PER_PAGE = 10;
+          const totalPages = Math.ceil(categories.length / ITEMS_PER_PAGE) || 1;
+          const startIndex = page * ITEMS_PER_PAGE;
+          const paginatedCats = categories.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+          const buttons = [];
+          
+          paginatedCats.forEach((cat, indexInPage) => {
+              try {
+                  let safeCat = sanitizeTelegramText(cat);
+                  if (!safeCat) safeCat = 'Lainnya';
+                  
+                  const globalIndex = startIndex + indexInPage;
+                  const callbackData = `CAT_${globalIndex}`;
+                  ctx.wizard.state.catMapList[globalIndex] = safeCat;
+                  buttons.push([Markup.button.callback(truncateSafe(safeCat, 40), callbackData)]);
+              } catch (e) {
+                  console.error("[INVALID CATEGORY NAME]", cat, e.message);
+              }
+          });
+          
+          // Append Lainnya if we are on the last page and it exists
+          if (hasCatLainnya && page === totalPages - 1) {
+              const globalIndex = categories.length; // index after the sorted categories
+              const callbackData = `CAT_${globalIndex}`;
+              ctx.wizard.state.catMapList[globalIndex] = 'Lainnya';
+              buttons.push([Markup.button.callback('Lainnya', callbackData)]);
+          }
+
+          // Pagination buttons
+          const paginationButtons = [];
+          if (page > 0) {
+              paginationButtons.push(Markup.button.callback('◀️', `CATPAGE_${page - 1}`));
+          }
+          if (page < totalPages - 1) {
+              paginationButtons.push(Markup.button.callback('▶️', `CATPAGE_${page + 1}`));
+          }
+          if (paginationButtons.length > 0) {
+              buttons.push(paginationButtons);
+          }
+
+          buttons.push([Markup.button.callback('🔙 Kembali', 'BACK_TO_PLATS')]);
+          buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
+
+          const finalButtons = cleanAndValidateButtons(buttons);
+          await sendOrEdit(ctx, `📄 Pilih Kategori ${platformName} (Hal ${page + 1}/${totalPages}):`, {
+            ...Markup.inlineKeyboard(finalButtons)
+          });
+          
+          if (action.startsWith('PLATFORM_') || action === 'BACK_TO_PLATS') {
+              return ctx.wizard.next();
+          } else {
+              return; // Stay in the same step
+          }
+      } catch (e) {
+          const logger = require('../utils/logger');
+          logger.error(`[CATEGORY_ERROR] Error in category render:\nuser_id=${ctx.from.id}\ncallback=${action}\nplatform=${platformName}\ncategory=null\nservice_id=null\nstack=${e.stack}`);
+          if (e.message && e.message.includes('button')) {
+              logger.error(`[TELEGRAM_RENDER_ERROR] Failed to render categories inline keyboard: ${e.message}`);
+          }
+          await sendOrEdit(ctx, `❌ Terjadi kesalahan saat memuat layanan. Error: ${e.message}`);
+          return ctx.scene.leave();
+      }
     } catch (err) {
       const logger = require('../utils/logger');
-      logger.error(`[CALLBACK ERROR] Step 2 failed: ${err.message}\n${err.stack}`);
+      const actionFallback = ctx.callbackQuery ? ctx.callbackQuery.data : 'unknown';
+      logger.error(`[PLATFORM_ERROR] Step 2 failed:\nuser_id=${ctx.from.id}\ncallback=${actionFallback}\nplatform=${ctx.wizard.state.order.platform || 'null'}\ncategory=null\nservice_id=null\nstack=${err.stack}`);
       await sendOrEdit(ctx, '❌ Terjadi kesalahan saat memuat layanan. Silakan coba kembali beberapa saat lagi.').catch(() => {});
       return ctx.scene.leave();
     }
@@ -279,126 +324,156 @@ const orderScene = new Scenes.WizardScene(
       return ctx.scene.reenter();
     }
     
+    let selectedCategory = ctx.wizard.state.order.category;
+    let page = 0;
+
     if (action.startsWith('CAT_')) {
         await ctx.answerCbQuery().catch(() => {});
-        const selectedCategory = ctx.wizard.state.catMap[action];
+        const index = action.replace('CAT_', '');
+        selectedCategory = ctx.wizard.state.catMapList[index];
         if (!selectedCategory) {
             await sendOrEdit(ctx, 'Kategori tidak valid atau sesi kadaluwarsa.');
             return ctx.scene.leave();
         }
-
         ctx.wizard.state.order.category = selectedCategory;
+    } else if (action.startsWith('SRVPAGE_')) {
+        await ctx.answerCbQuery().catch(() => {});
+        page = parseInt(action.replace('SRVPAGE_', ''), 10) || 0;
+    } else {
+        await ctx.answerCbQuery().catch(() => {});
+        return; // Unhandled
+    }
         
-        const logger = require('../utils/logger');
-        logger.info(`[CATEGORY CLICK] User ${ctx.from.id} chose category ${selectedCategory}`);
+    const logger = require('../utils/logger');
+    logger.info(`[SERVICE_CATEGORY]\ncategory=${selectedCategory}\npage=${page}`);
+    
+    try {
+        const groupedServices = smmService.getGroupedServices();
+        if (!groupedServices || groupedServices.length === 0) {
+             logger.warn(`[CACHE MISS] No cached services found during order flow.`);
+             throw new Error('Cache layanan kosong. Silakan coba lagi.');
+        }
         
-        await sendOrEdit(ctx, '⏳ Mengambil daftar layanan...');
+        let platformData = groupedServices.find(g => g.platform === ctx.wizard.state.order.platform);
         
-        try {
-            const groupedServices = smmService.getGroupedServices();
-            if (!groupedServices || groupedServices.length === 0) {
-                 logger.warn(`[CACHE MISS] No cached services found during order flow.`);
-                 throw new Error('Cache layanan kosong. Silakan coba lagi.');
-            }
-            
-            let platformData = groupedServices.find(g => g.platform === ctx.wizard.state.order.platform);
-            
-            if (!platformData) {
-                const normReq = ctx.wizard.state.order.platform.toLowerCase().replace(/[^a-z]/g, '');
-                platformData = groupedServices.find(g => g.platform.toLowerCase().replace(/[^a-z]/g, '') === normReq);
-            }
-            
-            if (!platformData) throw new Error('Data platform tidak ditemukan');
+        if (!platformData) {
+            const normReq = ctx.wizard.state.order.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
+            platformData = groupedServices.find(g => g.platform.toLowerCase().replace(/[^a-z0-9]/g, '') === normReq);
+        }
+        
+        if (!platformData) {
+            logger.error(`[PLATFORM_ERROR]\nplatform=${ctx.wizard.state.order.platform}\nreason=Data platform tidak ditemukan setelah normalisasi`);
+            throw new Error('Data platform tidak ditemukan');
+        }
 
-            const filteredServices = platformData.services
-                .filter(s => s.category === selectedCategory)
-                .slice(0, 10); // Max 10 layanan agar inline keyboard tidak error
-            
-            if (filteredServices.length === 0) {
-                await sendOrEdit(ctx, 'Maaf, layanan tidak tersedia saat ini.');
-                return ctx.scene.leave();
-            }
+        const filteredServices = platformData.services
+            .filter(s => {
+                let safeCat = sanitizeTelegramText(s.category);
+                if (!safeCat) safeCat = 'Lainnya';
+                return safeCat === selectedCategory;
+            });
+        
+        if (filteredServices.length === 0) {
+            await sendOrEdit(ctx, 'Maaf, layanan tidak tersedia saat ini.');
+            return ctx.scene.leave();
+        }
 
-            ctx.wizard.state.availableServices = filteredServices;
-            const ProfitEngine = require('../services/profit.engine');
-            
-            let servicesRendered = 0;
-            let servicesSkipped = 0;
+        // Simpan semua service yang difilter agar bisa diakses oleh Step berikutnya (snapshot)
+        ctx.wizard.state.availableServices = filteredServices;
+        const ProfitEngine = require('../services/profit.engine');
 
-            const buttons = [];
-            for (const s of filteredServices) {
-                try {
-                    if (!s.service) {
-                        logger.warn(`[SERVICE DATA WARNING] Terdeteksi service tanpa ID:`, s);
+        const ITEMS_PER_PAGE = 10;
+        const totalPages = Math.ceil(filteredServices.length / ITEMS_PER_PAGE) || 1;
+        const startIndex = page * ITEMS_PER_PAGE;
+        const paginatedServices = filteredServices.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+        
+        let servicesRendered = 0;
+        let servicesSkipped = 0;
+
+        const buttons = [];
+        for (const s of paginatedServices) {
+            try {
+                if (!s.service) {
+                    logger.warn(`[SERVICE DATA WARNING] Terdeteksi service tanpa ID:`, s);
+                    servicesSkipped++;
+                    continue;
+                }
+                const basePrice = parseFloat(s.price || s.rate || 0);
+                const p = await ProfitEngine.calculatePrice(basePrice, 1000, s.category);
+                
+                let safeName = '';
+                if (s.name === null || typeof s.name === 'undefined') {
+                    safeName = `Layanan #${s.service}`;
+                } else {
+                    safeName = sanitizeTelegramText(s.name);
+                    if (safeName === '') {
+                        console.error(`[SERVICE SKIPPED]\nid=${s.service}\nreason=invalid utf8`);
                         servicesSkipped++;
                         continue;
                     }
-                    const basePrice = parseFloat(s.price || s.rate || 0);
-                    const p = await ProfitEngine.calculatePrice(basePrice, 1000, s.category);
-                    
-                    let safeName = '';
-                    if (s.name === null || typeof s.name === 'undefined') {
-                        safeName = `Layanan #${s.service}`;
-                    } else {
-                        safeName = sanitizeTelegramText(s.name);
-                        if (safeName === '') {
-                            console.error(`[SERVICE SKIPPED]\nid=${s.service}\nreason=invalid utf8`);
-                            servicesSkipped++;
-                            continue;
-                        }
-                    }
-                    
-                    const label = `${safeName.substring(0, 40)} | ${formatRupiah(p.sell_price)}/K`;
-                    let cbData = `SERVICE_${s.service}`;
-                    if (Buffer.byteLength(cbData, 'utf8') > 64) {
-                        logger.warn(`[CALLBACK DATA WARNING] Callback terlalu panjang: ${cbData}`);
-                        cbData = `SERVICE_${s.service}`.substring(0, 64);
-                    }
-                    buttons.push([Markup.button.callback(label, cbData)]);
-                    servicesRendered++;
-                } catch (e) {
-                    servicesSkipped++;
-                    console.error("[INVALID SERVICE NAME]", s.service, JSON.stringify(s.name), e.message);
                 }
-            }
-            
-            logger.info(`[TWITTER] services fetched = ${filteredServices.length}`);
-            logger.info(`[TWITTER] services rendered = ${servicesRendered}`);
-            logger.info(`[TWITTER] services skipped = ${servicesSkipped}`);
-            
-            if (buttons.length === 0) {
-                await sendOrEdit(ctx, 'Maaf, ada kendala render layanan untuk kategori ini.');
-                return ctx.scene.leave();
-            }
-            
-            buttons.push([Markup.button.callback('🔙 Kembali', `PLATFORM_${ctx.wizard.state.order.platform}`)]);
-            buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
-
-            const finalButtons = cleanAndValidateButtons(buttons);
-            if (finalButtons.length === 0 || (finalButtons.length <= 2 && servicesRendered > 0)) {
-                // If only back/cancel buttons remain (or empty) but we rendered some
-                // they might have been stripped by the validator
-                if (finalButtons.length === 0) {
-                    await sendOrEdit(ctx, 'Maaf, gagal menampilkan layanan karena error format.');
-                    return ctx.scene.leave();
+                
+                const label = `${truncateSafe(safeName, 40)} | ${formatRupiah(p.sell_price)}/K`;
+                let cbData = `SERVICE_${s.service}`;
+                if (Buffer.byteLength(cbData, 'utf8') > 64) {
+                    logger.warn(`[CALLBACK DATA WARNING] Callback terlalu panjang: ${cbData}`);
+                    cbData = `SERVICE_${s.service}`.substring(0, 64);
                 }
+                buttons.push([Markup.button.callback(label, cbData)]);
+                servicesRendered++;
+            } catch (e) {
+                servicesSkipped++;
+                console.error("[INVALID SERVICE NAME]", s.service, JSON.stringify(s.name), e.message);
             }
-
-            await sendOrEdit(ctx, `Layanan dalam ${selectedCategory}:`, {
-                ...Markup.inlineKeyboard(finalButtons)
-            });
-            return ctx.wizard.next();
-
-        } catch (error) {
-            const logger = require('../utils/logger');
-            logger.error(`[CALLBACK ERROR] Step 3 category failed: ${error.message}\n${error.stack}`);
-            await sendOrEdit(ctx, '❌ Terjadi kesalahan saat mengambil layanan SMM. Silakan coba menu lagi.').catch(()=>({}));
+        }
+        
+        if (buttons.length === 0) {
+            await sendOrEdit(ctx, 'Maaf, ada kendala render layanan untuk kategori ini.');
             return ctx.scene.leave();
         }
+        
+        // Pagination buttons
+        const paginationButtons = [];
+        if (page > 0) {
+            paginationButtons.push(Markup.button.callback('◀️', `SRVPAGE_${page - 1}`));
+        }
+        if (page < totalPages - 1) {
+            paginationButtons.push(Markup.button.callback('▶️', `SRVPAGE_${page + 1}`));
+        }
+        if (paginationButtons.length > 0) {
+            buttons.push(paginationButtons);
+        }
+        
+        buttons.push([Markup.button.callback('🔙 Kembali', `PLATFORM_${ctx.wizard.state.order.platform}`)]);
+        buttons.push([Markup.button.callback('❌ Batal', 'CANCEL')]);
+
+        const finalButtons = cleanAndValidateButtons(buttons);
+        if (finalButtons.length === 0 || (finalButtons.length <= 2 && servicesRendered > 0)) {
+            if (finalButtons.length === 0) {
+                await sendOrEdit(ctx, 'Maaf, gagal menampilkan layanan karena error format.');
+                return ctx.scene.leave();
+            }
+        }
+
+        await sendOrEdit(ctx, `Layanan dalam ${selectedCategory} (Hal ${page + 1}/${totalPages}):`, {
+            ...Markup.inlineKeyboard(finalButtons)
+        });
+        
+        if (action.startsWith('CAT_')) {
+            return ctx.wizard.next();
+        } else {
+            return; // SRVPAGE stays in step
+        }
+
+    } catch (error) {
+        const logger = require('../utils/logger');
+        logger.error(`[SERVICE_ERROR] Error in service render:\nuser_id=${ctx.from.id}\ncallback=${action}\nplatform=${ctx.wizard.state.order.platform}\ncategory=${selectedCategory}\nservice_id=null\nstack=${error.stack}`);
+        if (error.message && error.message.includes('button')) {
+            logger.error(`[TELEGRAM_RENDER_ERROR] Failed to render services inline keyboard: ${error.message}`);
+        }
+        await sendOrEdit(ctx, '❌ Terjadi kesalahan saat mengambil layanan SMM. Silakan coba menu lagi.').catch(()=>({}));
+        return ctx.scene.leave();
     }
-    
-    // Fallback for unmatched action
-    await ctx.answerCbQuery().catch(() => {});
   },
 
   // Step 4: Masukkan Target (Username / Link)
@@ -584,6 +659,8 @@ const orderScene = new Scenes.WizardScene(
           }
           await UserService.setLock(userId, 10); // lock 10s
 
+          // RE-VALIDATE SERVICE AND PRICE - SKIP FETCHING FROM PROVIDER AGAIN!
+          // Use the snapshot captured during selection to prevent order failures if provider temporarily goes down
           const orderState = ctx.wizard.state.order;
           const user = await UserService.getUser(userId);
 
@@ -591,13 +668,11 @@ const orderScene = new Scenes.WizardScene(
             await ctx.reply('User tidak ditemukan. Ketik /start');
             return ctx.scene.leave();
           }
-
-          // RE-VALIDATE SERVICE AND PRICE
-          const services = smmService.getServices();
-          const latestService = services.find(s => s.service == orderState.selectedService.service);
+          
+          const latestService = orderState.selectedService;
           
           if (!latestService) {
-              await ctx.reply('❌ Layanan ini sudah tidak tersedia di provider atau sedang dinonaktifkan.');
+              await ctx.reply('❌ Sesi order tidak valid. Silahkan ulangi order.');
               return ctx.scene.leave();
           }
 
@@ -666,7 +741,8 @@ const orderScene = new Scenes.WizardScene(
           return ctx.scene.leave();
       } catch (error) {
           const logger = require('../utils/logger');
-          logger.error('Error saat submit order queue:', error);
+          const orderState = ctx.wizard.state.order || {};
+          logger.error(`[ORDER_ERROR] Error saat submit order queue:\nuser_id=${userId}\nservice_id=${orderState.selectedService ? orderState.selectedService.service : 'null'}\nstack=${error.stack}`);
           await ctx.reply(`❌ Terjadi kesalahan sistem saat memproses antrean order: ${error.message}.`);
           return ctx.scene.leave();
       } finally {

@@ -130,7 +130,7 @@ class SMMService {
         const platforms = new Set();
         
         let platformCounts = {
-           'Instagram': 0, 'TikTok': 0, 'Youtube': 0, 'Telegram': 0, 'Facebook': 0, 'Twitter (X)': 0, 'Threads': 0
+           'Instagram': 0, 'TikTok': 0, 'YouTube': 0, 'Telegram': 0, 'Facebook': 0, 'Twitter/X': 0, 'Threads': 0, 'Spotify': 0, 'Website Traffic': 0, 'WhatsApp': 0, 'Discord': 0, 'LinkedIn': 0, 'Pinterest': 0, 'Twitch': 0, 'Shopee': 0
         };
         
         servicesList.forEach(s => {
@@ -141,17 +141,21 @@ class SMMService {
           
           let platform = 'Lainnya';
           const lowerCat = cat.toLowerCase().trim();
-          if (lowerCat.includes('instagram') || lowerCat.includes('ig ')) platform = 'Instagram';
+          if (lowerCat.includes('instagram') || lowerCat.match(/\big\b/)) platform = 'Instagram';
           else if (lowerCat.includes('tiktok') || lowerCat.includes('tik tok')) platform = 'TikTok';
-          else if (lowerCat.includes('youtube') || lowerCat.includes('yt ')) platform = 'Youtube';
-          else if (lowerCat.includes('telegram') || lowerCat.includes('tg ')) platform = 'Telegram';
-          else if (lowerCat.includes('facebook') || lowerCat.includes('fb ')) platform = 'Facebook';
-          else if (lowerCat.includes('twitter') || lowerCat.includes('x.com') || lowerCat === 'x' || lowerCat.match(/\bx\b/)) platform = 'Twitter (X)';
-          else if (lowerCat.includes('threads') || lowerCat.includes('thread')) platform = 'Threads';
+          else if (lowerCat.includes('youtube') || lowerCat.match(/\byt\b/)) platform = 'YouTube';
+          else if (lowerCat.includes('telegram') || lowerCat.match(/\btg\b/)) platform = 'Telegram';
+          else if (lowerCat.includes('facebook') || lowerCat.match(/\bfb\b/)) platform = 'Facebook';
+          else if (lowerCat.includes('twitter') || lowerCat.includes('x.com')) platform = 'Twitter/X';
+          else if (lowerCat.includes('threads') || lowerCat.match(/\bthread\b/)) platform = 'Threads';
           else if (lowerCat.includes('spotify')) platform = 'Spotify';
-          else if (lowerCat.includes('website') || lowerCat.includes('traffic')) platform = 'Website Traffic';
-          else if (lowerCat.includes('whatsapp') || lowerCat.includes('wa ')) platform = 'WhatsApp';
+          else if (lowerCat.includes('whatsapp') || lowerCat.match(/\bwa\b/)) platform = 'WhatsApp';
           else if (lowerCat.includes('discord')) platform = 'Discord';
+          else if (lowerCat.includes('linkedin')) platform = 'LinkedIn';
+          else if (lowerCat.includes('pinterest')) platform = 'Pinterest';
+          else if (lowerCat.includes('twitch')) platform = 'Twitch';
+          else if (lowerCat.includes('shopee')) platform = 'Shopee';
+          else if (lowerCat.includes('website') || lowerCat.match(/\btraffic\b/)) platform = 'Website Traffic';
           
           if (platformCounts[platform] !== undefined) platformCounts[platform]++;
 
@@ -183,7 +187,7 @@ class SMMService {
         }
 
         this.servicesCache = {
-          raw: response,
+          raw: servicesList,
           grouped: groupedArr
         };
         this.servicesCacheTime = Date.now();
@@ -191,7 +195,7 @@ class SMMService {
       }
     }
     
-    return this.servicesCache ? this.servicesCache.raw : response;
+    return this.servicesCache ? this.servicesCache.raw : [];
   }
 
   getGroupedServices() {
